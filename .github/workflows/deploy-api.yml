@@ -1,0 +1,27 @@
+name: Deploy API to Railway
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "apps/api/**"
+      - ".github/workflows/deploy-api.yml"
+
+jobs:
+  deploy:
+    name: Deploy FastAPI → Railway
+    runs-on: ubuntu-latest
+    # Only deploy after CI passes
+    needs: []  # wire to ci.yml job IDs when repo is set up
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway up --service debugiq-api --detach
+        working-directory: apps/api

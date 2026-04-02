@@ -1,0 +1,16 @@
+[deploy]
+  buildCommand = "pip install -e . && alembic upgrade head"
+  startCommand = "uvicorn src.main:app --host 0.0.0.0 --port $PORT"
+
+[[services]]
+  name = "debugiq-api"
+  source = "apps/api"
+
+[services.variables]
+  # These variable NAMES are documented here.
+  # The VALUES must be set in the Railway dashboard — never in this file.
+  # Required:
+  #   DATABASE_URL        (auto-set by Railway PostgreSQL plugin)
+  #   JWT_SECRET          (generate: openssl rand -hex 32)
+  #   APP_ENV             = production
+  #   APP_VERSION         = 0.1.0
