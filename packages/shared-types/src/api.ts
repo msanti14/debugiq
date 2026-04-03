@@ -94,11 +94,10 @@ export interface PostAnalyticsEventRequest {
   properties: {
     signature_hash?: string;
     status?: "new" | "repeated";
-    severity_summary?: string;
-    mode?: string;
-    language?: string;
+    severity_summary?: "critical" | "high" | "medium" | "low" | "info" | "none";
+    mode?: AnalysisMode;
+    language?: SupportedLanguage;
     repo_key_hash?: string;
-    [key: string]: string | undefined;
   };
 }
 

@@ -132,3 +132,62 @@ describe("buildHookScript() — warn-only semantics", () => {
     expect(script).toMatch(/\(\s*[\s\S]*?\)\s*\|\|\s*true/);
   });
 });
+
+// ── warnOn / repeated-signature semantics ────────────────────────────────────
+
+describe("buildHookScript() — warn_on and repeated-signature semantics", () => {
+  it("reads warn_on field from the status file", () => {
+    const script = buildHookScript(null);
+    expect(script).toContain("warn_on=");
+  });
+
+  it("contains an elif branch for repeated signature warnings", () => {
+    const script = buildHookScript(null);
+    expect(script).toContain("elif");
+    expect(script).toContain('"repeated"');
+  });
+
+  it("repeated branch is gated on the new-or-critical warn_on value", () => {
+    const script = buildHookScript(null);
+    expect(script).toContain('"new-or-critical"');
+  });
+
+  it("repeated branch is gated on critical or high severity", () => {
+    const script = buildHookScript(null);
+    // Locate elif block and verify it checks severity
+    const elifIdx = script.indexOf("elif");
+    expect(elifIdx).toBeGreaterThan(-1);
+    const afterElif = script.slice(elifIdx);
+    expect(afterElif).toContain('"critical"');
+    expect(afterElif).toContain('"high"');
+  });
+
+  it("new-signature branch warns when status=new", () => {
+    const script = buildHookScript(null);
+    expect(script).toContain('"new"');
+    expect(script).toContain("new bug signature detected");
+  });
+
+  it("repeated warning message is distinct from new-signature warning message", () => {
+    const script = buildHookScript(null);
+    expect(script).toContain("repeated high-severity bug signature");
+  });
+
+  it("does NOT block commits in the repeated branch either (no exit 1)", () => {
+    const script = buildHookScript(null);
+    expect(script).not.toContain("exit 1");
+  });
+
+  it("repeated branch does not fire unconditionally — only inside new-or-critical guard", () => {
+    const script = buildHookScript(null);
+    // The repeated warning text must be inside the elif + severity check,
+    // not at the top level of the if block
+    const newIdx = script.indexOf("new bug signature detected");
+    const repeatedIdx = script.indexOf("repeated high-severity bug signature");
+    // Both messages must exist
+    expect(newIdx).toBeGreaterThan(-1);
+    expect(repeatedIdx).toBeGreaterThan(-1);
+    // The repeated message must come after the elif marker
+    expect(repeatedIdx).toBeGreaterThan(script.indexOf("elif"));
+  });
+});

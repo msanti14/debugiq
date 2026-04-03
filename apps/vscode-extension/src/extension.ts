@@ -18,10 +18,14 @@ import type { SupportedLanguage, SaveResultRequest, SaveResultResponse, Analysis
 import type { PostAnalyticsEventRequest } from "@debugiq/shared-types";
 import type { SignatureInfo } from "./providers/SidebarProvider";
 
-// API_BASE_URL is injected at build time from the API_BASE_URL environment variable.
-// In Phase 0 this is the Railway-generated URL. Developers can override via
-// the `debugiq.apiBaseUrl` VS Code setting for local development.
-declare const API_BASE_URL: string;
+// API_BASE_URL may be injected at build time by a bundler (e.g. esbuild define).
+// At runtime in a plain tsc build the symbol is absent, so we read it safely
+// from globalThis to avoid a ReferenceError on activation.
+const injectedApiBaseUrl: string =
+  typeof globalThis === "object" &&
+  typeof (globalThis as { API_BASE_URL?: unknown }).API_BASE_URL === "string"
+    ? ((globalThis as { API_BASE_URL?: string }).API_BASE_URL ?? "")
+    : "";
 
 export function activate(context: vscode.ExtensionContext): void {
   // ── First-run onboarding ─────────────────────────────────────────────────────
@@ -46,13 +50,15 @@ export function activate(context: vscode.ExtensionContext): void {
   // ── Service wiring ──────────────────────────────────────────────────────────
   const configuredUrl =
     vscode.workspace.getConfiguration("debugiq").get<string>("apiBaseUrl") ||
-    API_BASE_URL ||
+    injectedApiBaseUrl ||
     "http://localhost:8000";
 
   const sigEnabled =
     vscode.workspace.getConfiguration("debugiq").get<boolean>("signature.enabled") ?? true;
   const sigSensitivity =
     vscode.workspace.getConfiguration("debugiq").get<"strict" | "balanced">("signature.sensitivity") ?? "balanced";
+  const hookWarnOn =
+    vscode.workspace.getConfiguration("debugiq").get<"new-signature" | "new-or-critical">("hook.warnOn") ?? "new-signature";
 
   const keychain = new KeychainService(context);
   const client = new BackendClient(configuredUrl);
@@ -110,7 +116,7 @@ export function activate(context: vscode.ExtensionContext): void {
         async () => {
           try {
             const result = await analyze(selectedCode, language, models[0]);
-            const { signatureInfo, suggestions } = computeAndStoreSignature(result, signatureStore, sigEnabled, sigSensitivity);
+            const { signatureInfo, suggestions } = computeAndStoreSignature(result, signatureStore, sigEnabled, sigSensitivity, hookWarnOn);
             sidebar.show(result, signatureInfo, suggestions);
             autoSave(result, auth, client);
             fireAnalyticsEvent(result, signatureInfo, auth, client);
@@ -159,7 +165,7 @@ export function activate(context: vscode.ExtensionContext): void {
         async () => {
           try {
             const result = await analyzeLearn(selectedCode, language, models[0]);
-            const { signatureInfo, suggestions } = computeAndStoreSignature(result, signatureStore, sigEnabled, sigSensitivity);
+            const { signatureInfo, suggestions } = computeAndStoreSignature(result, signatureStore, sigEnabled, sigSensitivity, hookWarnOn);
             sidebar.show(result, signatureInfo, suggestions);
             autoSave(result, auth, client);
             fireAnalyticsEvent(result, signatureInfo, auth, client);
@@ -333,6 +339,7 @@ function computeAndStoreSignature(
   signatureStore: SignatureStore,
   sigEnabled: boolean,
   sensitivity: "strict" | "balanced",
+  hookWarnOn: "new-signature" | "new-or-critical",
 ): { signatureInfo: SignatureInfo | undefined; suggestions: string[] } {
   if (!sigEnabled) {
     return { signatureInfo: undefined, suggestions: [] };
@@ -348,10 +355,12 @@ function computeAndStoreSignature(
   const status = signatureStore.classifySignature(repoKey, signature);
   // Fire-and-forget: persist latest signature; never block UX
   signatureStore.setLastSignature(repoKey, signature).catch(() => {});
-  // Write status file for pre-commit hook consumption (fire-and-forget)
-  writeSignatureStatusFile(repoKey, signature, status);
 
   const sevs = result.findings.map((f) => f.severity);
+  const topSev = highestSeverity(sevs) ?? "none";
+  // Write status file for pre-commit hook consumption (fire-and-forget)
+  writeSignatureStatusFile(repoKey, signature, status, topSev, hookWarnOn);
+
   const suggestions = evaluateSignatureRules({
     status,
     mode: result.mode,
@@ -364,13 +373,16 @@ function computeAndStoreSignature(
 
 /**
  * Writes `.git/debugiq-sig-status.txt` in the workspace git root so the
- * pre-commit hook can read it. Completely fire-and-forget — any I/O error is
- * silently swallowed so analysis UX is never blocked.
+ * pre-commit hook can read it. Includes severity and warn_on so the hook can
+ * apply the correct warning policy. Completely fire-and-forget — any I/O
+ * error is silently swallowed so analysis UX is never blocked.
  */
 function writeSignatureStatusFile(
   workspaceRoot: string,
   signature: string,
   status: "new" | "repeated",
+  severity: string,
+  warnOn: "new-signature" | "new-or-critical",
 ): void {
   try {
     const gitDir = path.join(workspaceRoot, ".git");
@@ -378,7 +390,7 @@ function writeSignatureStatusFile(
     const statusFile = path.join(gitDir, "debugiq-sig-status.txt");
     fs.writeFileSync(
       statusFile,
-      `signature=${signature}\nstatus=${status}\n`,
+      `signature=${signature}\nstatus=${status}\nseverity=${severity}\nwarn_on=${warnOn}\n`,
       "utf8",
     );
   } catch {

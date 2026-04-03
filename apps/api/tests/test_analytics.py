@@ -1,5 +1,9 @@
 """Tests for analytics events endpoint: POST /v0/analytics/events"""
 
+# Valid 64-character lowercase SHA-256 hex strings for use in tests.
+_HASH_A = "a" * 64
+_HASH_B = "b" * 64
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -31,12 +35,12 @@ def test_post_analytics_event_signature_generated(client):
         json={
             "event_type": "signature_generated",
             "properties": {
-                "signature_hash": "abc123",
+                "signature_hash": _HASH_A,
                 "status": "new",
                 "severity_summary": "high",
                 "mode": "quick",
                 "language": "python",
-                "repo_key_hash": "def456",
+                "repo_key_hash": _HASH_B,
             },
         },
         headers=_auth_headers(token),
@@ -53,7 +57,7 @@ def test_post_analytics_event_signature_repeated(client):
         "/v0/analytics/events",
         json={
             "event_type": "signature_repeated",
-            "properties": {"signature_hash": "abc123", "status": "repeated"},
+            "properties": {"signature_hash": _HASH_A, "status": "repeated"},
         },
         headers=_auth_headers(token),
     )
@@ -74,7 +78,7 @@ def test_post_analytics_event_hook_warning_shown(client):
     token = _register_and_login(client, "analytics4@example.com")
     res = client.post(
         "/v0/analytics/events",
-        json={"event_type": "hook_warning_shown", "properties": {"signature_hash": "xyz"}},
+        json={"event_type": "hook_warning_shown", "properties": {"signature_hash": _HASH_A}},
         headers=_auth_headers(token),
     )
     assert res.status_code == 201
@@ -138,6 +142,105 @@ def test_post_analytics_event_missing_event_type_rejected(client):
     assert res.status_code == 422
 
 
+def test_post_analytics_event_invalid_signature_hash_rejected(client):
+    """signature_hash that is not a 64-char SHA-256 hex string must return 422."""
+    token = _register_and_login(client, "analyticsA@example.com")
+    for bad_hash in ["abc123", "not-a-hash", "g" * 64, "A" * 64, _HASH_A[:-1]]:
+        res = client.post(
+            "/v0/analytics/events",
+            json={
+                "event_type": "signature_generated",
+                "properties": {"signature_hash": bad_hash},
+            },
+            headers=_auth_headers(token),
+        )
+        assert res.status_code == 422, f"expected 422 for hash {bad_hash!r}, got {res.status_code}"
+
+
+def test_post_analytics_event_invalid_repo_key_hash_rejected(client):
+    """repo_key_hash that is not a 64-char SHA-256 hex string must return 422."""
+    token = _register_and_login(client, "analyticsB@example.com")
+    res = client.post(
+        "/v0/analytics/events",
+        json={
+            "event_type": "signature_generated",
+            "properties": {"repo_key_hash": "short"},
+        },
+        headers=_auth_headers(token),
+    )
+    assert res.status_code == 422
+
+
+def test_post_analytics_event_unexpected_property_rejected(client):
+    """Extra/unknown fields in properties must return 422 (schema is closed)."""
+    token = _register_and_login(client, "analyticsC@example.com")
+    res = client.post(
+        "/v0/analytics/events",
+        json={
+            "event_type": "hook_installed",
+            "properties": {"arbitrary_key": "some_value"},
+        },
+        headers=_auth_headers(token),
+    )
+    assert res.status_code == 422
+
+
+def test_post_analytics_event_invalid_severity_rejected(client):
+    """An invalid severity_summary enum value must return 422."""
+    token = _register_and_login(client, "analyticsD@example.com")
+    res = client.post(
+        "/v0/analytics/events",
+        json={
+            "event_type": "signature_generated",
+            "properties": {"severity_summary": "extreme"},
+        },
+        headers=_auth_headers(token),
+    )
+    assert res.status_code == 422
+
+
+def test_post_analytics_event_invalid_mode_rejected(client):
+    """An invalid mode enum value must return 422."""
+    token = _register_and_login(client, "analyticsE@example.com")
+    res = client.post(
+        "/v0/analytics/events",
+        json={
+            "event_type": "signature_generated",
+            "properties": {"mode": "turbo"},
+        },
+        headers=_auth_headers(token),
+    )
+    assert res.status_code == 422
+
+
+def test_post_analytics_event_invalid_language_rejected(client):
+    """An invalid language enum value must return 422."""
+    token = _register_and_login(client, "analyticsF@example.com")
+    res = client.post(
+        "/v0/analytics/events",
+        json={
+            "event_type": "signature_generated",
+            "properties": {"language": "cobol"},
+        },
+        headers=_auth_headers(token),
+    )
+    assert res.status_code == 422
+
+
+def test_post_analytics_event_invalid_status_rejected(client):
+    """An invalid status enum value must return 422."""
+    token = _register_and_login(client, "analyticsG@example.com")
+    res = client.post(
+        "/v0/analytics/events",
+        json={
+            "event_type": "signature_generated",
+            "properties": {"status": "unknown"},
+        },
+        headers=_auth_headers(token),
+    )
+    assert res.status_code == 422
+
+
 # ── Persistence ───────────────────────────────────────────────────────────────
 
 
@@ -150,7 +253,7 @@ def test_post_analytics_event_persisted(client, db_session):
         "/v0/analytics/events",
         json={
             "event_type": "signature_generated",
-            "properties": {"signature_hash": "persist_test"},
+            "properties": {"signature_hash": _HASH_A},
         },
         headers=_auth_headers(token),
     )
@@ -164,5 +267,5 @@ def test_post_analytics_event_persisted(client, db_session):
     )
     assert stored is not None
     assert stored.event_type == "signature_generated"
-    assert stored.properties["signature_hash"] == "persist_test"
+    assert stored.properties["signature_hash"] == _HASH_A
     assert stored.user_id is not None
