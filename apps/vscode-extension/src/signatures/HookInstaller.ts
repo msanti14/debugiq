@@ -7,9 +7,12 @@
  * DebugIQ hook behavior:
  *  - ALWAYS warn-only: exits 0 regardless of findings.
  *  - Reads `.git/debugiq-sig-status.txt` (written by the extension after analysis).
- *  - Prints a soft warning when a new bug signature is detected.
+ *  - Prints a soft warning when a new bug signature is detected, including the
+ *    short signature ID and a severity note if present.
  *  - On any internal failure the subshell exits non-zero, but `|| true` ensures
  *    the outer hook exits 0 — the commit is never blocked.
+ *  - Gracefully handles: no git repo, detached HEAD, missing status file,
+ *    and any unexpected shell errors.
  */
 
 // ── Markers ───────────────────────────────────────────────────────────────────
@@ -26,18 +29,24 @@ const DEBUGIQ_HOOK_BODY = [
   "# This section is maintained by the DebugIQ VS Code extension.",
   "# It NEVER blocks a commit. Remove this section to disable DebugIQ checks.",
   "(",
-  '  _DQ_DIR="$(git rev-parse --git-dir 2>/dev/null)"',
+  '  _DQ_DIR="$(git rev-parse --git-dir 2>/dev/null)" || exit 0',
+  '  [ -n "$_DQ_DIR" ] || exit 0',
   '  _DQ_STATUS="$_DQ_DIR/debugiq-sig-status.txt"',
   '  if [ -f "$_DQ_STATUS" ]; then',
   "    _DQ_SIG=\"$(grep -o 'signature=[a-f0-9]*' \"$_DQ_STATUS\" 2>/dev/null | cut -d= -f2)\"",
   "    _DQ_STS=\"$(grep -o 'status=[a-z]*' \"$_DQ_STATUS\" 2>/dev/null | cut -d= -f2)\"",
+  "    _DQ_SEV=\"$(grep -o 'severity=[a-z]*' \"$_DQ_STATUS\" 2>/dev/null | cut -d= -f2)\"",
   '    if [ "$_DQ_STS" = "new" ] && [ -n "$_DQ_SIG" ]; then',
   "      printf '[DebugIQ] Warning: new bug signature detected (%s...)\\n' \"${_DQ_SIG:0:16}\" >&2",
+  '      if [ "$_DQ_SEV" = "critical" ] || [ "$_DQ_SEV" = "high" ]; then',
+  "        printf '[DebugIQ] Severity: %s — review before merging.\\n' \"$_DQ_SEV\" >&2",
+  "      fi",
   "      printf '[DebugIQ] Tip: run \"DebugIQ: Run Quick Debug\" to review findings.\\n' >&2",
   "    fi",
   "  fi",
   ") || true",
-].join("\n").replace("${_DQ_SIG:0:16}", "\${_DQ_SIG:0:16}");
+].join("\n")
+  .replace("${_DQ_SIG:0:16}", "\${_DQ_SIG:0:16}");
 
 const DEBUGIQ_HOOK_SECTION =
   HOOK_START_MARKER + "\n" + DEBUGIQ_HOOK_BODY + "\n" + HOOK_END_MARKER;

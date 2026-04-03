@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
+import { createHash } from "crypto";
 import { KeychainService } from "./keychain/KeychainService";
 import { BackendClient } from "./api/BackendClient";
 import { AuthService } from "./auth/AuthService";
@@ -12,7 +13,9 @@ import { analyzeLearn } from "./analyzer/LearnAnalyzer";
 import { normalizeFindingsForSignature, computeBugSignature } from "./analyzer/BugSignature";
 import { SignatureStore } from "./signatures/SignatureStore";
 import { buildHookScript } from "./signatures/HookInstaller";
+import { evaluateSignatureRules, highestSeverity } from "./signatures/SignatureRules";
 import type { SupportedLanguage, SaveResultRequest, SaveResultResponse, AnalysisResult } from "@debugiq/shared-types";
+import type { PostAnalyticsEventRequest } from "@debugiq/shared-types";
 import type { SignatureInfo } from "./providers/SidebarProvider";
 
 // API_BASE_URL is injected at build time from the API_BASE_URL environment variable.
@@ -26,6 +29,11 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.getConfiguration("debugiq").get<string>("apiBaseUrl") ||
     API_BASE_URL ||
     "http://localhost:8000";
+
+  const sigEnabled =
+    vscode.workspace.getConfiguration("debugiq").get<boolean>("signature.enabled") ?? true;
+  const sigSensitivity =
+    vscode.workspace.getConfiguration("debugiq").get<"strict" | "balanced">("signature.sensitivity") ?? "balanced";
 
   const keychain = new KeychainService(context);
   const client = new BackendClient(configuredUrl);
@@ -83,9 +91,10 @@ export function activate(context: vscode.ExtensionContext): void {
         async () => {
           try {
             const result = await analyze(selectedCode, language, models[0]);
-            const signatureInfo = computeAndStoreSignature(result, signatureStore);
-            sidebar.show(result, signatureInfo);
+            const { signatureInfo, suggestions } = computeAndStoreSignature(result, signatureStore, sigEnabled, sigSensitivity);
+            sidebar.show(result, signatureInfo, suggestions);
             autoSave(result, auth, client);
+            fireAnalyticsEvent(result, signatureInfo, auth, client);
           } catch (e) {
             if (e instanceof vscode.LanguageModelError) {
               vscode.window.showErrorMessage("Copilot error: " + e.message);
@@ -131,9 +140,10 @@ export function activate(context: vscode.ExtensionContext): void {
         async () => {
           try {
             const result = await analyzeLearn(selectedCode, language, models[0]);
-            const signatureInfo = computeAndStoreSignature(result, signatureStore);
-            sidebar.show(result, signatureInfo);
+            const { signatureInfo, suggestions } = computeAndStoreSignature(result, signatureStore, sigEnabled, sigSensitivity);
+            sidebar.show(result, signatureInfo, suggestions);
             autoSave(result, auth, client);
+            fireAnalyticsEvent(result, signatureInfo, auth, client);
           } catch (e) {
             if (e instanceof vscode.LanguageModelError) {
               vscode.window.showErrorMessage("Copilot error: " + e.message);
@@ -170,7 +180,14 @@ export function activate(context: vscode.ExtensionContext): void {
         // File doesn't exist yet — that's fine
       }
       const newContent = buildHookScript(existingContent);
-      fs.writeFileSync(hookPath, newContent, "utf8");
+      try {
+        fs.writeFileSync(hookPath, newContent, "utf8");
+      } catch (writeErr) {
+        vscode.window.showErrorMessage(
+          `DebugIQ: Could not write hook file — ${String(writeErr)}. Check file permissions.`,
+        );
+        return;
+      }
       try {
         fs.chmodSync(hookPath, 0o755);
       } catch {
@@ -282,15 +299,21 @@ function mapToSupportedLanguage(languageId: string): SupportedLanguage {
 
 /**
  * Computes the bug signature for `result`, classifies it as new/repeated using
- * `signatureStore`, persists the latest signature (fire-and-forget), and writes
- * the status file in `.git/` for the pre-commit hook to consume.
+ * `signatureStore`, persists the latest signature (fire-and-forget), writes
+ * the status file in `.git/` for the pre-commit hook to consume, and evaluates
+ * signature rules to produce team-insight suggestions.
  *
- * Returns a SignatureInfo object for the sidebar to display.
+ * Returns a `{ signatureInfo, suggestions }` tuple for the sidebar to display.
  */
 function computeAndStoreSignature(
   result: AnalysisResult,
   signatureStore: SignatureStore,
-): SignatureInfo {
+  sigEnabled: boolean,
+  sensitivity: "strict" | "balanced",
+): { signatureInfo: SignatureInfo | undefined; suggestions: string[] } {
+  if (!sigEnabled) {
+    return { signatureInfo: undefined, suggestions: [] };
+  }
   const repoKey =
     vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "__no-workspace__";
   const sigInput = normalizeFindingsForSignature(
@@ -304,7 +327,16 @@ function computeAndStoreSignature(
   signatureStore.setLastSignature(repoKey, signature).catch(() => {});
   // Write status file for pre-commit hook consumption (fire-and-forget)
   writeSignatureStatusFile(repoKey, signature, status);
-  return { signature, status };
+
+  const sevs = result.findings.map((f) => f.severity);
+  const suggestions = evaluateSignatureRules({
+    status,
+    mode: result.mode,
+    highestSeverity: highestSeverity(sevs),
+    sensitivity,
+  });
+
+  return { signatureInfo: { signature, status }, suggestions };
 }
 
 /**
@@ -353,5 +385,39 @@ function autoSave(
       analyzed_at: result.analyzed_at,
     };
     client.post<SaveResultResponse>("/results", payload).catch(() => {});
+  }).catch(() => {});
+}
+
+/**
+ * Fires a `signature_generated` or `signature_repeated` analytics event when
+ * the user is logged in. Completely fire-and-forget.
+ */
+function fireAnalyticsEvent(
+  result: AnalysisResult,
+  signatureInfo: SignatureInfo | undefined,
+  auth: AuthService,
+  client: BackendClient,
+): void {
+  if (!signatureInfo) return;
+  auth.isLoggedIn().then((loggedIn) => {
+    if (!loggedIn) return;
+    const repoKey =
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "__no-workspace__";
+    const sevs = result.findings.map((f) => f.severity);
+    const topSev = highestSeverity(sevs);
+    const eventType =
+      signatureInfo.status === "new" ? "signature_generated" : "signature_repeated";
+    const payload: PostAnalyticsEventRequest = {
+      event_type: eventType,
+      properties: {
+        signature_hash: signatureInfo.signature,
+        status: signatureInfo.status,
+        severity_summary: topSev ?? "none",
+        mode: result.mode,
+        language: result.language,
+        repo_key_hash: createHash("sha256").update(repoKey, "utf8").digest("hex"), // hash, never raw path
+      },
+    };
+    client.post<{ event_id: string }>("/analytics/events", payload).catch(() => {});
   }).catch(() => {});
 }

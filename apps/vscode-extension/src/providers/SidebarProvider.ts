@@ -22,7 +22,7 @@ export interface SignatureInfo {
 export class SidebarProvider {
   private panel: vscode.WebviewPanel | undefined;
 
-  show(result: AnalysisResult, signatureInfo?: SignatureInfo): void {
+  show(result: AnalysisResult, signatureInfo?: SignatureInfo, suggestions?: string[]): void {
     const panelTitle = derivePanelTitle(result);
 
     if (this.panel) {
@@ -44,15 +44,17 @@ export class SidebarProvider {
       });
     }
 
-    this.panel.webview.html = SidebarProvider.renderHtml(result, signatureInfo);
+    this.panel.webview.html = SidebarProvider.renderHtml(result, signatureInfo, suggestions);
   }
 
   /**
    * Pure static renderer — no vscode dependency, fully testable.
    * Findings are sorted by severity (critical → high → medium → low → info).
    * Optional `signatureInfo` renders a signature status section at the top.
+   * Optional `suggestions` renders a "Suggested next steps" section below the
+   * signature section. All strings are HTML-escaped before rendering.
    */
-  static renderHtml(result: AnalysisResult, signatureInfo?: SignatureInfo): string {
+  static renderHtml(result: AnalysisResult, signatureInfo?: SignatureInfo, suggestions?: string[]): string {
     const severityOrder: Record<string, number> = {
       critical: 0,
       high: 1,
@@ -83,6 +85,11 @@ export class SidebarProvider {
     const signatureSection = signatureInfo
       ? renderSignatureSection(signatureInfo)
       : "";
+
+    const suggestionsSection =
+      suggestions && suggestions.length > 0
+        ? renderSuggestionsSection(suggestions)
+        : "";
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -223,12 +230,41 @@ export class SidebarProvider {
       white-space: pre-wrap;
       margin: 0;
     }
+    /* Suggestions section */
+    .suggestions-section {
+      font-size: 0.85em;
+      margin-bottom: 16px;
+      padding: 8px 12px;
+      background: var(--vscode-editorWidget-background, #252526);
+      border: 1px solid var(--vscode-editorWidget-border, #454545);
+      border-left: 3px solid var(--vscode-textLink-foreground, #3794ff);
+      border-radius: 0 4px 4px 0;
+    }
+    .suggestions-heading {
+      font-weight: 700;
+      font-size: 0.9em;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--vscode-textLink-foreground, #3794ff);
+      margin-bottom: 6px;
+    }
+    .suggestions-list {
+      margin: 0;
+      padding-left: 18px;
+    }
+    .suggestions-list li {
+      margin-bottom: 4px;
+      line-height: 1.5;
+    }
+    .suggestions-list li:last-child {
+      margin-bottom: 0;
+    }
   </style>
 </head>
 <body>
   <h2>${escapeHtml(heading)}</h2>
   <p class="meta">${langLabel} · ${modeLabel} mode · ${result.findings_count} finding${result.findings_count !== 1 ? "s" : ""}${subLabel}</p>
-  ${signatureSection}${findingItems}
+  ${signatureSection}${suggestionsSection}${findingItems}
 </body>
 </html>`;
   }
@@ -248,6 +284,19 @@ function renderSignatureSection(info: SignatureInfo): string {
   <span class="sig-label">Bug Signature</span>
   <code class="sig-value">${escapeHtml(shortSig)}</code>
   <span class="sig-status sig-${escapeHtml(info.status)}">${escapeHtml(statusLabel)}</span>
+</div>
+`;
+}
+
+function renderSuggestionsSection(suggestions: string[]): string {
+  const items = suggestions
+    .map((s) => `<li>${escapeHtml(s)}</li>`)
+    .join("\n    ");
+  return `<div class="suggestions-section">
+  <div class="suggestions-heading">Suggested next steps</div>
+  <ul class="suggestions-list">
+    ${items}
+  </ul>
 </div>
 `;
 }

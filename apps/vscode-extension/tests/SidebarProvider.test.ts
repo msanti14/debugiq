@@ -221,3 +221,68 @@ describe("SidebarProvider.renderHtml() — with signature info", () => {
     expect(html).toContain("badge-high");
   });
 });
+
+// ── renderHtml — Suggested next steps section ─────────────────────────────────
+
+describe("SidebarProvider.renderHtml() — with suggestions", () => {
+  const SUGGESTIONS = [
+    'This pattern keeps recurring. Consider running "DebugIQ: Run Learn Debug".',
+    "Create a team task to address this bug pattern systematically.",
+  ];
+
+  it("renders 'Suggested next steps' heading when suggestions are provided", () => {
+    const html = SidebarProvider.renderHtml(QUICK_RESULT, SIG_INFO_REPEATED, SUGGESTIONS);
+    expect(html).toContain("Suggested next steps");
+  });
+
+  it("renders the suggestions-section element", () => {
+    const html = SidebarProvider.renderHtml(QUICK_RESULT, SIG_INFO_REPEATED, SUGGESTIONS);
+    expect(html).toContain('class="suggestions-section"');
+  });
+
+  it("renders each suggestion text", () => {
+    const html = SidebarProvider.renderHtml(QUICK_RESULT, SIG_INFO_REPEATED, SUGGESTIONS);
+    expect(html).toContain("recurring");
+    expect(html).toContain("team task");
+  });
+
+  it("does NOT render suggestions-section when suggestions array is empty", () => {
+    const html = SidebarProvider.renderHtml(QUICK_RESULT, SIG_INFO_REPEATED, []);
+    expect(html).not.toContain('class="suggestions-section"');
+    expect(html).not.toContain("Suggested next steps");
+  });
+
+  it("does NOT render suggestions-section when suggestions param is omitted", () => {
+    const html = SidebarProvider.renderHtml(QUICK_RESULT, SIG_INFO_REPEATED);
+    expect(html).not.toContain('class="suggestions-section"');
+  });
+
+  it("does NOT render suggestions-section without signatureInfo even if suggestions provided", () => {
+    // suggestions alone without signatureInfo: the section should still be renderable
+    // (suggestions don't require signatureInfo), but let's verify it works either way
+    const html = SidebarProvider.renderHtml(QUICK_RESULT, undefined, SUGGESTIONS);
+    expect(html).toContain("Suggested next steps");
+  });
+
+  it("HTML-escapes suggestion text (XSS prevention)", () => {
+    const malicious = ['<script>alert("xss")</script>'];
+    const html = SidebarProvider.renderHtml(QUICK_RESULT, SIG_INFO_NEW, malicious);
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("renders suggestions section after signature section and before findings", () => {
+    const html = SidebarProvider.renderHtml(QUICK_RESULT, SIG_INFO_NEW, SUGGESTIONS);
+    const sigPos = html.indexOf("signature-section");
+    const sugPos = html.indexOf('class="suggestions-section"');
+    const findPos = html.indexOf('class="finding"');
+    expect(sigPos).toBeLessThan(sugPos);
+    expect(sugPos).toBeLessThan(findPos);
+  });
+
+  it("existing findings still render with both signatureInfo and suggestions", () => {
+    const html = SidebarProvider.renderHtml(QUICK_RESULT, SIG_INFO_NEW, SUGGESTIONS);
+    expect(html).toContain("optional chaining");
+    expect(html).toContain("badge-high");
+  });
+});

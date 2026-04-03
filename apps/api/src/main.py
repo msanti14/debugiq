@@ -8,6 +8,7 @@ from src.core.config import settings
 from src.db.session import get_db
 from src.results.router import router as results_router
 from src.users.router import router as users_router
+from src.analytics.router import router as analytics_router
 
 app = FastAPI(
     title="DebugIQ API",
@@ -31,6 +32,7 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/v0")
 app.include_router(users_router, prefix="/v0")
 app.include_router(results_router, prefix="/v0")
+app.include_router(analytics_router, prefix="/v0")
 
 
 # ── Health ────────────────────────────────────────────────────────────────────

@@ -79,3 +79,29 @@ export interface HealthResponse {
   db: "connected" | "error";
   version: string;
 }
+
+// ── Analytics API Shapes ──────────────────────────────────────────────────────
+
+export type AnalyticsEventType =
+  | "signature_generated"
+  | "signature_repeated"
+  | "hook_warning_shown"
+  | "hook_installed";
+
+export interface PostAnalyticsEventRequest {
+  event_type: AnalyticsEventType;
+  /** Structured metadata — never raw code, only hashes and enums. */
+  properties: {
+    signature_hash?: string;
+    status?: "new" | "repeated";
+    severity_summary?: string;
+    mode?: string;
+    language?: string;
+    repo_key_hash?: string;
+    [key: string]: string | undefined;
+  };
+}
+
+export interface PostAnalyticsEventResponse {
+  event_id: string;
+}

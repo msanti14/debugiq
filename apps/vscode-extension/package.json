@@ -53,6 +53,23 @@
           "type": "string",
           "default": "",
           "description": "DebugIQ backend URL. Leave empty to use the default production URL set at build time."
+        },
+        "debugiq.signature.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable bug signature tracking and team insight suggestions."
+        },
+        "debugiq.signature.sensitivity": {
+          "type": "string",
+          "enum": ["strict", "balanced"],
+          "default": "balanced",
+          "description": "Signature rule sensitivity. 'strict' surfaces more suggestions; 'balanced' focuses on high-impact patterns."
+        },
+        "debugiq.hook.warnOn": {
+          "type": "string",
+          "enum": ["new-signature", "new-or-critical"],
+          "default": "new-signature",
+          "description": "When to emit a pre-commit hook warning. 'new-signature' warns for any new signature; 'new-or-critical' also warns for critical findings on repeated signatures."
         }
       }
     },
