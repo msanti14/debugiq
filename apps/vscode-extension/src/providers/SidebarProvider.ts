@@ -2,16 +2,27 @@ import * as vscode from "vscode";
 import type { AnalysisResult, Finding } from "@debugiq/shared-types";
 
 /**
+ * SignatureInfo carries the computed bug signature and its classification
+ * (new vs. repeated) to be displayed in the sidebar panel.
+ */
+export interface SignatureInfo {
+  signature: string;
+  status: "new" | "repeated";
+}
+
+/**
  * SidebarProvider manages the DebugIQ webview panel.
  *
- * - `show(result)` creates the panel on first call and reveals it on subsequent calls.
- *   The panel title updates on every call to reflect the current analysis mode.
- * - `renderHtml(result)` is a pure static method — usable in tests without a vscode context.
+ * - `show(result, signatureInfo?)` creates the panel on first call and reveals
+ *   it on subsequent calls. The panel title updates on every call to reflect
+ *   the current analysis mode.
+ * - `renderHtml(result, signatureInfo?)` is a pure static method — usable in
+ *   tests without a vscode context.
  */
 export class SidebarProvider {
   private panel: vscode.WebviewPanel | undefined;
 
-  show(result: AnalysisResult): void {
+  show(result: AnalysisResult, signatureInfo?: SignatureInfo): void {
     const panelTitle = derivePanelTitle(result);
 
     if (this.panel) {
@@ -33,14 +44,15 @@ export class SidebarProvider {
       });
     }
 
-    this.panel.webview.html = SidebarProvider.renderHtml(result);
+    this.panel.webview.html = SidebarProvider.renderHtml(result, signatureInfo);
   }
 
   /**
    * Pure static renderer — no vscode dependency, fully testable.
    * Findings are sorted by severity (critical → high → medium → low → info).
+   * Optional `signatureInfo` renders a signature status section at the top.
    */
-  static renderHtml(result: AnalysisResult): string {
+  static renderHtml(result: AnalysisResult, signatureInfo?: SignatureInfo): string {
     const severityOrder: Record<string, number> = {
       critical: 0,
       high: 1,
@@ -68,6 +80,10 @@ export class SidebarProvider {
 
     const subLabel = result.demo_mode ? " · No API key required" : "";
 
+    const signatureSection = signatureInfo
+      ? renderSignatureSection(signatureInfo)
+      : "";
+
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -94,6 +110,37 @@ export class SidebarProvider {
       color: var(--vscode-descriptionForeground, #888);
       margin-bottom: 20px;
     }
+    /* Signature section */
+    .signature-section {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 0.82em;
+      margin-bottom: 16px;
+      padding: 8px 12px;
+      background: var(--vscode-editorWidget-background, #252526);
+      border: 1px solid var(--vscode-editorWidget-border, #454545);
+      border-radius: 4px;
+    }
+    .sig-label {
+      color: var(--vscode-descriptionForeground, #888);
+      flex-shrink: 0;
+    }
+    .sig-value {
+      font-family: var(--vscode-editor-font-family, monospace);
+      color: var(--vscode-foreground, #cccccc);
+      letter-spacing: 0.02em;
+    }
+    .sig-status {
+      font-weight: 700;
+      font-size: 0.9em;
+      padding: 1px 6px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+    .sig-new      { background: #cc6d00; color: #fff; }
+    .sig-repeated { background: #2e7d32; color: #fff; }
     .finding {
       border: 1px solid var(--vscode-editorWidget-border, #454545);
       border-radius: 4px;
@@ -181,7 +228,7 @@ export class SidebarProvider {
 <body>
   <h2>${escapeHtml(heading)}</h2>
   <p class="meta">${langLabel} · ${modeLabel} mode · ${result.findings_count} finding${result.findings_count !== 1 ? "s" : ""}${subLabel}</p>
-  ${findingItems}
+  ${signatureSection}${findingItems}
 </body>
 </html>`;
   }
@@ -192,6 +239,17 @@ export class SidebarProvider {
 function derivePanelTitle(result: AnalysisResult): string {
   if (result.demo_mode) return "DebugIQ — Demo";
   return result.mode === "learn" ? "DebugIQ — Learn Mode" : "DebugIQ — Quick Debug";
+}
+
+function renderSignatureSection(info: SignatureInfo): string {
+  const shortSig = info.signature.slice(0, 16) + "…";
+  const statusLabel = info.status === "new" ? "New signature" : "Repeated signature";
+  return `<div class="signature-section">
+  <span class="sig-label">Bug Signature</span>
+  <code class="sig-value">${escapeHtml(shortSig)}</code>
+  <span class="sig-status sig-${escapeHtml(info.status)}">${escapeHtml(statusLabel)}</span>
+</div>
+`;
 }
 
 function renderFinding(f: Finding, mode: AnalysisResult["mode"]): string {

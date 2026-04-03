@@ -40,6 +40,10 @@
       {
         "command": "debugiq.logout",
         "title": "DebugIQ: Log Out"
+      },
+      {
+        "command": "debugiq.installPreCommitHook",
+        "title": "DebugIQ: Install Pre-Commit Hook"
       }
     ],
     "configuration": {

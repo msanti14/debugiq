@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { SidebarProvider, formatExplanation } from "../src/providers/SidebarProvider";
+import type { SignatureInfo } from "../src/providers/SidebarProvider";
 import type { AnalysisResult } from "@debugiq/shared-types";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -146,5 +147,77 @@ describe("formatExplanation()", () => {
     const html = formatExplanation("Just a plain explanation with no headings.");
     expect(html).toContain("Just a plain explanation");
     expect(html).toContain("explanation-body");
+  });
+});
+
+// ── renderHtml — Signature section ───────────────────────────────────────────
+
+const SIG_INFO_NEW: SignatureInfo = {
+  signature: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2",
+  status: "new",
+};
+
+const SIG_INFO_REPEATED: SignatureInfo = {
+  signature: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2",
+  status: "repeated",
+};
+
+describe("SidebarProvider.renderHtml() — with signature info", () => {
+  it("renders the signature-section element when signatureInfo is provided", () => {
+    const html = SidebarProvider.renderHtml(QUICK_RESULT, SIG_INFO_NEW);
+    expect(html).toContain("signature-section");
+  });
+
+  it("renders the sig-label 'Bug Signature'", () => {
+    const html = SidebarProvider.renderHtml(QUICK_RESULT, SIG_INFO_NEW);
+    expect(html).toContain("Bug Signature");
+  });
+
+  it("renders a shortened version of the signature (first 16 chars)", () => {
+    const html = SidebarProvider.renderHtml(QUICK_RESULT, SIG_INFO_NEW);
+    expect(html).toContain("a1b2c3d4e5f6a7b8");
+  });
+
+  it("renders 'New signature' badge when status is new", () => {
+    const html = SidebarProvider.renderHtml(QUICK_RESULT, SIG_INFO_NEW);
+    expect(html).toContain("New signature");
+    expect(html).toContain("sig-new");
+  });
+
+  it("renders 'Repeated signature' badge when status is repeated", () => {
+    const html = SidebarProvider.renderHtml(QUICK_RESULT, SIG_INFO_REPEATED);
+    expect(html).toContain("Repeated signature");
+    expect(html).toContain("sig-repeated");
+  });
+
+  it("does not render Bug Signature element when signatureInfo is omitted", () => {
+    const html = SidebarProvider.renderHtml(QUICK_RESULT);
+    // The CSS contains class selectors like `.sig-label` — check that the
+    // actual HTML element attributes are absent (only appear in DOM, not CSS)
+    expect(html).not.toContain('class="sig-label"');
+    expect(html).not.toContain('class="sig-value"');
+  });
+
+  it("HTML-escapes the signature value (no raw < or > injection)", () => {
+    const dangerous: SignatureInfo = {
+      signature: "<script>bad</script>" + "a".repeat(43),
+      status: "new",
+    };
+    const html = SidebarProvider.renderHtml(QUICK_RESULT, dangerous);
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("renders signature section before the findings list", () => {
+    const html = SidebarProvider.renderHtml(QUICK_RESULT, SIG_INFO_NEW);
+    const sigPos = html.indexOf("signature-section");
+    const findingPos = html.indexOf("finding");
+    expect(sigPos).toBeLessThan(findingPos);
+  });
+
+  it("existing findings still render correctly when signatureInfo is present", () => {
+    const html = SidebarProvider.renderHtml(QUICK_RESULT, SIG_INFO_NEW);
+    expect(html).toContain("optional chaining");
+    expect(html).toContain("badge-high");
   });
 });

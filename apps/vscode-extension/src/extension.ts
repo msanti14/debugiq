@@ -1,4 +1,6 @@
 import * as vscode from "vscode";
+import * as fs from "fs";
+import * as path from "path";
 import { KeychainService } from "./keychain/KeychainService";
 import { BackendClient } from "./api/BackendClient";
 import { AuthService } from "./auth/AuthService";
@@ -7,7 +9,11 @@ import { ModelRouter } from "./analyzer/ModelRouter";
 import { SidebarProvider } from "./providers/SidebarProvider";
 import { analyze } from "./analyzer/QuickAnalyzer";
 import { analyzeLearn } from "./analyzer/LearnAnalyzer";
-import type { SupportedLanguage, SaveResultRequest, SaveResultResponse } from "@debugiq/shared-types";
+import { normalizeFindingsForSignature, computeBugSignature } from "./analyzer/BugSignature";
+import { SignatureStore } from "./signatures/SignatureStore";
+import { buildHookScript } from "./signatures/HookInstaller";
+import type { SupportedLanguage, SaveResultRequest, SaveResultResponse, AnalysisResult } from "@debugiq/shared-types";
+import type { SignatureInfo } from "./providers/SidebarProvider";
 
 // API_BASE_URL is injected at build time from the API_BASE_URL environment variable.
 // In Phase 0 this is the Railway-generated URL. Developers can override via
@@ -29,6 +35,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const demo = new DemoMode();
   const sidebar = new SidebarProvider();
   const modelRouter = new ModelRouter();
+  const signatureStore = new SignatureStore(context.workspaceState);
 
   // ── Commands ────────────────────────────────────────────────────────────────
 
@@ -76,21 +83,9 @@ export function activate(context: vscode.ExtensionContext): void {
         async () => {
           try {
             const result = await analyze(selectedCode, language, models[0]);
-            sidebar.show(result);
-            // Auto-save: fire-and-forget; never block UX
-            if (await auth.isLoggedIn()) {
-              const payload: SaveResultRequest = {
-                language: result.language,
-                mode: result.mode,
-                code_hash: result.code_hash,
-                findings: result.findings,
-                model_used: result.model_used,
-                duration_ms: result.duration_ms ?? 0,
-                demo_mode: result.demo_mode,
-                analyzed_at: result.analyzed_at,
-              };
-              client.post<SaveResultResponse>("/results", payload).catch(() => {});
-            }
+            const signatureInfo = computeAndStoreSignature(result, signatureStore);
+            sidebar.show(result, signatureInfo);
+            autoSave(result, auth, client);
           } catch (e) {
             if (e instanceof vscode.LanguageModelError) {
               vscode.window.showErrorMessage("Copilot error: " + e.message);
@@ -136,21 +131,9 @@ export function activate(context: vscode.ExtensionContext): void {
         async () => {
           try {
             const result = await analyzeLearn(selectedCode, language, models[0]);
-            sidebar.show(result);
-            // Auto-save: fire-and-forget; never block UX
-            if (await auth.isLoggedIn()) {
-              const payload: SaveResultRequest = {
-                language: result.language,
-                mode: result.mode,
-                code_hash: result.code_hash,
-                findings: result.findings,
-                model_used: result.model_used,
-                duration_ms: result.duration_ms ?? 0,
-                demo_mode: result.demo_mode,
-                analyzed_at: result.analyzed_at,
-              };
-              client.post<SaveResultResponse>("/results", payload).catch(() => {});
-            }
+            const signatureInfo = computeAndStoreSignature(result, signatureStore);
+            sidebar.show(result, signatureInfo);
+            autoSave(result, auth, client);
           } catch (e) {
             if (e instanceof vscode.LanguageModelError) {
               vscode.window.showErrorMessage("Copilot error: " + e.message);
@@ -159,6 +142,42 @@ export function activate(context: vscode.ExtensionContext): void {
             }
           }
         },
+      );
+    }),
+  );
+
+  // Install Pre-Commit Hook — creates a warn-only .git/hooks/pre-commit
+  context.subscriptions.push(
+    vscode.commands.registerCommand("debugiq.installPreCommitHook", async () => {
+      const folders = vscode.workspace.workspaceFolders;
+      if (!folders?.length) {
+        vscode.window.showWarningMessage("DebugIQ: No workspace folder open.");
+        return;
+      }
+      const root = folders[0].uri.fsPath;
+      const hooksDir = path.join(root, ".git", "hooks");
+      if (!fs.existsSync(hooksDir)) {
+        vscode.window.showErrorMessage(
+          "DebugIQ: No .git/hooks directory found. Is this a git repository?",
+        );
+        return;
+      }
+      const hookPath = path.join(hooksDir, "pre-commit");
+      let existingContent: string | null = null;
+      try {
+        existingContent = fs.readFileSync(hookPath, "utf8");
+      } catch {
+        // File doesn't exist yet — that's fine
+      }
+      const newContent = buildHookScript(existingContent);
+      fs.writeFileSync(hookPath, newContent, "utf8");
+      try {
+        fs.chmodSync(hookPath, 0o755);
+      } catch {
+        // chmod not supported on all platforms (e.g. Windows) — ignore
+      }
+      vscode.window.showInformationMessage(
+        "DebugIQ: Pre-commit hook installed (warn-only). It will never block a commit.",
       );
     }),
   );
@@ -239,7 +258,7 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {
-  // Nothing to clean up in Phase 1/2
+  // Nothing to clean up
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -259,4 +278,80 @@ function mapToSupportedLanguage(languageId: string): SupportedLanguage {
     default:
       return "python";
   }
+}
+
+/**
+ * Computes the bug signature for `result`, classifies it as new/repeated using
+ * `signatureStore`, persists the latest signature (fire-and-forget), and writes
+ * the status file in `.git/` for the pre-commit hook to consume.
+ *
+ * Returns a SignatureInfo object for the sidebar to display.
+ */
+function computeAndStoreSignature(
+  result: AnalysisResult,
+  signatureStore: SignatureStore,
+): SignatureInfo {
+  const repoKey =
+    vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "__no-workspace__";
+  const sigInput = normalizeFindingsForSignature(
+    result.findings,
+    result.language,
+    result.mode,
+  );
+  const signature = computeBugSignature(sigInput);
+  const status = signatureStore.classifySignature(repoKey, signature);
+  // Fire-and-forget: persist latest signature; never block UX
+  signatureStore.setLastSignature(repoKey, signature).catch(() => {});
+  // Write status file for pre-commit hook consumption (fire-and-forget)
+  writeSignatureStatusFile(repoKey, signature, status);
+  return { signature, status };
+}
+
+/**
+ * Writes `.git/debugiq-sig-status.txt` in the workspace git root so the
+ * pre-commit hook can read it. Completely fire-and-forget — any I/O error is
+ * silently swallowed so analysis UX is never blocked.
+ */
+function writeSignatureStatusFile(
+  workspaceRoot: string,
+  signature: string,
+  status: "new" | "repeated",
+): void {
+  try {
+    const gitDir = path.join(workspaceRoot, ".git");
+    if (!fs.existsSync(gitDir)) return;
+    const statusFile = path.join(gitDir, "debugiq-sig-status.txt");
+    fs.writeFileSync(
+      statusFile,
+      `signature=${signature}\nstatus=${status}\n`,
+      "utf8",
+    );
+  } catch {
+    // Fire-and-forget — never block UX
+  }
+}
+
+/**
+ * Auto-saves an analysis result to the backend when the user is logged in.
+ * Completely fire-and-forget — never blocks UX or throws.
+ */
+function autoSave(
+  result: AnalysisResult,
+  auth: AuthService,
+  client: BackendClient,
+): void {
+  auth.isLoggedIn().then((loggedIn) => {
+    if (!loggedIn) return;
+    const payload: SaveResultRequest = {
+      language: result.language,
+      mode: result.mode,
+      code_hash: result.code_hash,
+      findings: result.findings,
+      model_used: result.model_used,
+      duration_ms: result.duration_ms ?? 0,
+      demo_mode: result.demo_mode,
+      analyzed_at: result.analyzed_at,
+    };
+    client.post<SaveResultResponse>("/results", payload).catch(() => {});
+  }).catch(() => {});
 }
