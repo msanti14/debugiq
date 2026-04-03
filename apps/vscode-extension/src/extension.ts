@@ -4,6 +4,8 @@ import { BackendClient } from "./api/BackendClient";
 import { AuthService } from "./auth/AuthService";
 import { DemoMode } from "./demo/DemoMode";
 import { ModelRouter } from "./analyzer/ModelRouter";
+import { SidebarProvider } from "./providers/SidebarProvider";
+import type { SupportedLanguage } from "@debugiq/shared-types";
 
 // API_BASE_URL is injected at build time from the API_BASE_URL environment variable.
 // In Phase 0 this is the Railway-generated URL. Developers can override via
@@ -23,19 +25,17 @@ export function activate(context: vscode.ExtensionContext): void {
   client.setAuth(auth);
 
   const demo = new DemoMode();
+  const sidebar = new SidebarProvider();
   const _router = new ModelRouter(); // used in Phase 1 analyzer
 
   // ── Commands ────────────────────────────────────────────────────────────────
   context.subscriptions.push(
     vscode.commands.registerCommand("debugiq.runDemo", () => {
-      const fixtures = demo.getFixtures();
-      const panel = vscode.window.createWebviewPanel(
-        "debugiqDemo",
-        "DebugIQ — Demo",
-        vscode.ViewColumn.Beside,
-        { enableScripts: false },
-      );
-      panel.webview.html = renderDemoHtml(fixtures);
+      const languageId =
+        vscode.window.activeTextEditor?.document.languageId ?? "";
+      const language = mapToSupportedLanguage(languageId);
+      const result = demo.getFixture(language, "quick");
+      sidebar.show(result);
     }),
   );
 
@@ -68,32 +68,24 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {
-  // Nothing to clean up in Phase 0
+  // Nothing to clean up in Phase 0/1
 }
 
-// ── Demo renderer (minimal, no external dependencies) ─────────────────────────
-function renderDemoHtml(fixtures: ReturnType<DemoMode["getFixtures"]>): string {
-  const items = fixtures
-    .flatMap((r) => r.findings)
-    .map(
-      (f) =>
-        `<li><strong>[${f.severity.toUpperCase()}] ${f.title}</strong><br/>
-         <em>Line ${f.line_start}</em> · ${f.category}<br/>
-         ${f.description}<br/>
-         ${f.fix_hint ? `<code>${f.fix_hint}</code>` : ""}
-         ${f.explanation ? `<details><summary>Learn more</summary><p>${f.explanation}</p></details>` : ""}
-         </li>`,
-    )
-    .join("\n");
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-  return `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><title>DebugIQ Demo</title>
-<style>body{font-family:sans-serif;padding:16px}li{margin-bottom:16px}code{background:#f4f4f4;padding:2px 4px}</style>
-</head>
-<body>
-<h2>DebugIQ — Demo Results</h2>
-<p>These are example findings from AI-generated code. No API key required.</p>
-<ul>${items}</ul>
-</body></html>`;
+/**
+ * Maps a VS Code languageId to a SupportedLanguage.
+ * Defaults to "python" for any unrecognised language.
+ */
+function mapToSupportedLanguage(languageId: string): SupportedLanguage {
+  switch (languageId) {
+    case "typescript":
+    case "typescriptreact":
+    case "javascript":
+    case "javascriptreact":
+      return "typescript";
+    case "python":
+    default:
+      return "python";
+  }
 }
