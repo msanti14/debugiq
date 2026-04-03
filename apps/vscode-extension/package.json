@@ -22,6 +22,10 @@
         "title": "DebugIQ: Run Quick Debug"
       },
       {
+        "command": "debugiq.runLearnDebug",
+        "title": "DebugIQ: Run Learn Debug"
+      },
+      {
         "command": "debugiq.setApiKey",
         "title": "DebugIQ: Set API Key"
       },

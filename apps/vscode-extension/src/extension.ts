@@ -6,6 +6,7 @@ import { DemoMode } from "./demo/DemoMode";
 import { ModelRouter } from "./analyzer/ModelRouter";
 import { SidebarProvider } from "./providers/SidebarProvider";
 import { analyze } from "./analyzer/QuickAnalyzer";
+import { analyzeLearn } from "./analyzer/LearnAnalyzer";
 import type { SupportedLanguage, SaveResultRequest, SaveResultResponse } from "@debugiq/shared-types";
 
 // API_BASE_URL is injected at build time from the API_BASE_URL environment variable.
@@ -75,6 +76,66 @@ export function activate(context: vscode.ExtensionContext): void {
         async () => {
           try {
             const result = await analyze(selectedCode, language, models[0]);
+            sidebar.show(result);
+            // Auto-save: fire-and-forget; never block UX
+            if (await auth.isLoggedIn()) {
+              const payload: SaveResultRequest = {
+                language: result.language,
+                mode: result.mode,
+                code_hash: result.code_hash,
+                findings: result.findings,
+                model_used: result.model_used,
+                duration_ms: result.duration_ms ?? 0,
+                demo_mode: result.demo_mode,
+                analyzed_at: result.analyzed_at,
+              };
+              client.post<SaveResultResponse>("/results", payload).catch(() => {});
+            }
+          } catch (e) {
+            if (e instanceof vscode.LanguageModelError) {
+              vscode.window.showErrorMessage("Copilot error: " + e.message);
+            } else {
+              throw e;
+            }
+          }
+        },
+      );
+    }),
+  );
+
+  // Learn Debug — uses GitHub Copilot via vscode.lm; falls back to demo if unavailable
+  context.subscriptions.push(
+    vscode.commands.registerCommand("debugiq.runLearnDebug", async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showWarningMessage("Open a file first");
+        return;
+      }
+      const selectedCode = editor.document.getText(editor.selection);
+      if (!selectedCode.trim()) {
+        vscode.window.showWarningMessage("Select code to analyze");
+        return;
+      }
+      const language = mapToSupportedLanguage(editor.document.languageId);
+      const models = await vscode.lm.selectChatModels(
+        modelRouter.toLmSelector("learn", language),
+      );
+      if (models.length === 0) {
+        vscode.window.showInformationMessage(
+          "GitHub Copilot not available. Showing demo result.",
+        );
+        sidebar.show(demo.getFixture(language, "learn"));
+        return;
+      }
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "DebugIQ: Teaching through this bug…",
+          cancellable: false,
+        },
+        async () => {
+          try {
+            const result = await analyzeLearn(selectedCode, language, models[0]);
             sidebar.show(result);
             // Auto-save: fire-and-forget; never block UX
             if (await auth.isLoggedIn()) {
