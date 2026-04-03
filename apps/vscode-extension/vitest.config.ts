@@ -8,6 +8,7 @@ export default defineConfig({
         __dirname,
         "../../packages/shared-types/src/index.ts",
       ),
+      vscode: path.resolve(__dirname, "__mocks__/vscode.ts"),
     },
   },
   test: {

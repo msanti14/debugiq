@@ -6,7 +6,7 @@
   "private": true,
   "publisher": "debugiq",
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.90.0"
   },
   "categories": ["Linters", "Other"],
   "activationEvents": ["onStartupFinished"],
@@ -16,6 +16,18 @@
       {
         "command": "debugiq.runDemo",
         "title": "DebugIQ: Run Demo Analysis"
+      },
+      {
+        "command": "debugiq.runQuickDebug",
+        "title": "DebugIQ: Run Quick Debug"
+      },
+      {
+        "command": "debugiq.setApiKey",
+        "title": "DebugIQ: Set API Key"
+      },
+      {
+        "command": "debugiq.clearApiKey",
+        "title": "DebugIQ: Clear API Key"
       },
       {
         "command": "debugiq.login",
@@ -35,6 +47,9 @@
           "description": "DebugIQ backend URL. Leave empty to use the default production URL set at build time."
         }
       }
+    },
+    "languageModelAccess": {
+      "vendor": "copilot"
     }
   },
   "scripts": {
@@ -49,7 +64,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "^1.90.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
     "eslint": "^8.57.0",

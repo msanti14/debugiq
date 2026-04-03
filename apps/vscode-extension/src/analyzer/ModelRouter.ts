@@ -1,10 +1,11 @@
+import type * as vscode from "vscode";
 import type { AnalysisMode, SupportedLanguage } from "@debugiq/shared-types";
 
 /**
  * ModelRouter — selects which LLM to use based on mode and language.
  *
  * Phase 0: stub implementation — returns config only, makes zero LLM calls.
- * Phase 1: will read user's stored API keys from KeychainService and invoke the model.
+ * Phase 2: toLmSelector() maps mode → vscode.lm selector for GitHub Copilot.
  *
  * Architecture constraint (ADR-001): LLM calls happen here, in the extension.
  * The backend never receives API keys and never proxies LLM requests.
@@ -35,5 +36,19 @@ export class ModelRouter {
 
   demoConfig(): ModelConfig {
     return { modelId: "demo", provider: "demo", timeoutMs: 0 };
+  }
+
+  /**
+   * Returns a vscode.lm selector for the given mode.
+   * Used by the runQuickDebug command to find an available Copilot model.
+   */
+  toLmSelector(
+    mode: AnalysisMode,
+    _language: SupportedLanguage,
+  ): vscode.LanguageModelChatSelector {
+    if (mode === "learn") {
+      return { vendor: "copilot", family: "claude-sonnet-4" };
+    }
+    return { vendor: "copilot", family: "gpt-4o" };
   }
 }

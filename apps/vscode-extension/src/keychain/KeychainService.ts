@@ -12,6 +12,10 @@ import type * as vscode from "vscode";
  * - Values are NEVER logged.
  */
 export class KeychainService {
+  // ── Well-known storage keys (as static props for convenient access) ───────────
+  static readonly CLAUDE_API_KEY = "debugiq.claudeApiKey";
+  static readonly OPENAI_API_KEY = "debugiq.openaiApiKey";
+
   private readonly secrets: vscode.SecretStorage;
 
   constructor(context: { secrets: vscode.SecretStorage }) {
@@ -31,11 +35,11 @@ export class KeychainService {
   }
 }
 
-// ── Well-known storage keys ───────────────────────────────────────────────────
+// ── Well-known storage keys (also exported as a const map for AuthService) ────
 // Centralised here so typos cause compile errors, not silent misses.
 export const KEYCHAIN_KEYS = {
   ACCESS_TOKEN: "debugiq.accessToken",
   REFRESH_TOKEN: "debugiq.refreshToken",
-  CLAUDE_API_KEY: "debugiq.claudeApiKey",
-  OPENAI_API_KEY: "debugiq.openaiApiKey",
+  CLAUDE_API_KEY: KeychainService.CLAUDE_API_KEY,
+  OPENAI_API_KEY: KeychainService.OPENAI_API_KEY,
 } as const;
