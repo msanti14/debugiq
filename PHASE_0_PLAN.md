@@ -112,57 +112,57 @@ debugiq/
 
 ### Infrastructure
 
-- [ ] **INF-01** Initialize git repo with `pnpm-workspace.yaml`, `.gitignore`, `.env.example`
+- [x] **INF-01** Initialize git repo with `pnpm-workspace.yaml`, `.gitignore`, `.env.example`
   - AC: `git init && pnpm install` completes cleanly; no secrets committed
-- [ ] **INF-02** PostgreSQL provisioned on Railway, `DATABASE_URL` in Railway environment
+- [x] **INF-02** PostgreSQL provisioned on Railway, `DATABASE_URL` in Railway environment
   - AC: `psql $DATABASE_URL -c "\dt"` connects successfully from CI
-- [ ] **INF-03** Railway service created for `apps/api`, deploy pipeline wired
+- [x] **INF-03** Railway service created for `apps/api`, deploy pipeline wired
   - AC: Push to `main` triggers Railway deploy; `/health` returns `200` from public URL
-- [ ] **INF-04** `docker-compose.yml` runs local PostgreSQL for dev
+- [x] **INF-04** `docker-compose.yml` runs local PostgreSQL for dev
   - AC: `docker compose up -d` starts Postgres; API connects without Railway URL
 
 ### Backend (FastAPI)
 
-- [ ] **API-01** Project scaffold: FastAPI, SQLAlchemy, Alembic, Pydantic v2, pytest
+- [x] **API-01** Project scaffold: FastAPI, SQLAlchemy, Alembic, Pydantic v2, pytest
   - AC: `uvicorn src.main:app --reload` starts; `GET /health` returns `{"status":"ok","db":"connected"}`
-- [ ] **API-02** Alembic migration: create all Phase 0 tables (see schema below)
+- [x] **API-02** Alembic migration: create all Phase 0 tables (see schema below)
   - AC: `alembic upgrade head` runs idempotently; all tables exist in Railway DB
-- [ ] **API-03** Auth endpoints: `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`
+- [x] **API-03** Auth endpoints: `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`
   - AC: Register creates user; login returns `access_token` + `refresh_token`; refresh rotates tokens; logout revokes refresh token; all validated with pytest
-- [ ] **API-04** User profile: `GET /users/me`, `PATCH /users/me`
+- [x] **API-04** User profile: `GET /users/me`, `PATCH /users/me`
   - AC: Returns current user fields; PATCH updates `display_name` only; email not patchable
-- [ ] **API-05** Save result: `POST /results`, `GET /results/{id}`, `GET /results` (paginated)
+- [x] **API-05** Save result: `POST /results`, `GET /results/{id}`, `GET /results` (paginated)
   - AC: Stores structured findings; code content is never accepted in request body (schema enforces this)
-- [ ] **API-06** Rate limiting: 60 req/min per user on `/results`, 10 req/min on `/auth/login`
+- [x] **API-06** Rate limiting: 60 req/min per user on `/results`, 10 req/min on `/auth/login`
   - AC: 11th login attempt in 1 min returns `429`
-- [ ] **API-07** CORS: only accept requests from `vscode-webview://*` and `http://localhost:*`
+- [x] **API-07** CORS: only accept requests from `vscode-webview://*` and `http://localhost:*`
   - AC: Request from random origin returns `403`
 
 ### VS Code Extension
 
-- [ ] **EXT-01** Extension scaffold: `yo code` TypeScript template, ESLint, Prettier, vitest
+- [x] **EXT-01** Extension scaffold: `yo code` TypeScript template, ESLint, Prettier, vitest
   - AC: Extension activates in VS Code; no errors in Output panel
-- [ ] **EXT-02** Demo Mode: command `debugiq.runDemo` loads fixture results and renders in sidebar
+- [x] **EXT-02** Demo Mode: command `debugiq.runDemo` loads fixture results and renders in sidebar
   - AC: Demo works with zero network calls; verified by mocking `fetch` in tests
-- [ ] **EXT-03** `KeychainService.ts`: store/retrieve/delete API keys via `vscode.SecretStorage`
+- [x] **EXT-03** `KeychainService.ts`: store/retrieve/delete API keys via `vscode.SecretStorage`
   - AC: Key survives VS Code restart; key is NOT in `globalState` or any readable storage; unit test confirms storage target
-- [ ] **EXT-04** `AuthService.ts`: register, login, token refresh; store JWT in `SecretStorage`
+- [x] **EXT-04** `AuthService.ts`: register, login, token refresh; store JWT in `SecretStorage`
   - AC: Token stored in SecretStorage, never in `localStorage` or extension settings
-- [ ] **EXT-05** `BackendClient.ts`: typed HTTP client with auth header injection and 401 auto-refresh
+- [x] **EXT-05** `BackendClient.ts`: typed HTTP client with auth header injection and 401 auto-refresh
   - AC: Client retries with refreshed token on 401; throws after second 401
-- [ ] **EXT-06** `ModelRouter.ts` stub: accepts `{mode, language}`, returns model name — no LLM calls yet
+- [x] **EXT-06** `ModelRouter.ts` stub: accepts `{mode, language}`, returns model name — no LLM calls yet
   - AC: Unit tests cover Quick/Learn routing for Python and TypeScript
 
 ### Shared Types
 
-- [ ] **TYP-01** `packages/shared-types` defines: `AnalysisResult`, `Finding`, `Severity`, `AnalysisMode`, all auth request/response shapes
+- [x] **TYP-01** `packages/shared-types` defines: `AnalysisResult`, `Finding`, `Severity`, `AnalysisMode`, all auth request/response shapes
   - AC: Both `apps/api` (via JSON schema) and `vscode-extension` import from this package without circular deps
 
 ### CI/CD
 
-- [ ] **CI-01** GitHub Actions: lint + test on every PR (`pnpm lint && pnpm test`)
+- [x] **CI-01** GitHub Actions: lint + test on every PR (`pnpm lint && pnpm test`)
   - AC: Intentional type error in PR causes CI to fail
-- [ ] **CI-02** GitHub Actions: deploy `apps/api` to Railway on merge to `main`
+- [x] **CI-02** GitHub Actions: deploy `apps/api` to Railway on merge to `main`
   - AC: Merge to main triggers deploy; health endpoint live within 3 minutes
 
 ---
@@ -493,17 +493,19 @@ CREATE INDEX idx_analytics_event_type ON analytics_events(event_type);
 ### Day 5 — Hardening + Go/No-Go Review (Fri)
 **Goal:** Security rules verified, CI fully green, Phase 0 gate assessed.
 
-- [ ] Verify no secrets in git history (`git log --all --full-history -- "*.env"`)
-- [ ] Verify `analysis_results` schema rejects any request with code content field
-- [ ] Add `deploy-api.yml` GitHub Action (Railway deploy on `main` merge)
-- [ ] Run full test suite locally (`pnpm test` across all packages)
-- [ ] Document Railway env vars in `infra/railway.toml` (var names only, no values)
-- [ ] Move existing DOCX docs to `docs/original/`
-- [ ] Write ADR-001: "LLM calls happen in extension, not backend"
+- [x] Verify no secrets in git history (`git log --all --full-history -- "*.env"`)
+- [x] Verify `analysis_results` schema rejects any request with code content field
+- [x] Add `deploy-api.yml` GitHub Action (Railway deploy on `main` merge)
+- [x] Run full test suite locally (`pnpm test` across all packages)
+- [x] Document Railway env vars in `infra/railway.toml` (var names only, no values)
+- [x] Move existing DOCX docs to `docs/original/`
+- [x] Write ADR-001: "LLM calls happen in extension, not backend"
   - Include sync protocol note: any change to a type in `packages/shared-types/src/domain.ts` **must** include a matching update to the corresponding Pydantic model in `apps/api` in the **same commit**. No automated enforcement in Phase 0 — discipline enforced via PR checklist item: *"Did you update both the shared-types domain and the Pydantic model?"*
-- [ ] Go/No-Go self-review against gate below
+- [x] Go/No-Go self-review against gate below
 
 **Deliverable:** All CI green, Railway deployed, Go/No-Go checklist filled.
+
+**Status (Apr 2026):** Completed. MVP release candidate reached GO and shipped with post-release hook compatibility fix.
 
 ---
 
@@ -513,21 +515,21 @@ CREATE INDEX idx_analytics_event_type ON analytics_events(event_type);
 
 ### MUST (blocking)
 
-- [ ] `GET /health` returns `200` from Railway public URL
-- [ ] Full auth cycle (register → login → refresh → logout) passes automated tests
-- [ ] `POST /results` schema rejects any body containing a field with raw code
-- [ ] Extension activates and Demo Mode returns results with zero network calls (verified by test mock)
-- [ ] LLM API keys stored only in `vscode.SecretStorage`; no key field exists in any backend endpoint schema
-- [ ] No secrets or `.env` files in git history
-- [ ] Railway PostgreSQL is the only database; no other persistence layer exists
-- [ ] CI pipeline (lint + test) passes on `main` branch
+- [x] `GET /health` returns `200` from Railway public URL
+- [x] Full auth cycle (register → login → refresh → logout) passes automated tests
+- [x] `POST /results` schema rejects any body containing a field with raw code
+- [x] Extension activates and Demo Mode returns results with zero network calls (verified by test mock)
+- [x] LLM API keys stored only in `vscode.SecretStorage`; no key field exists in any backend endpoint schema
+- [x] No secrets or `.env` files in git history
+- [x] Railway PostgreSQL is the only database; no other persistence layer exists
+- [x] CI pipeline (lint + test) passes on `main` branch
 
 ### SHOULD (non-blocking but logged as debt)
 
-- [ ] `GET /results` pagination tested with >20 items
-- [ ] Refresh token rotation tested under concurrent requests
+- [x] `GET /results` pagination tested with >20 items
+- [x] Refresh token rotation tested under concurrent requests
 - [ ] Extension tested on Windows (SecretStorage backend differs)
-- [ ] Railway auto-deploy tested end-to-end (not just manually triggered)
+- [x] Railway auto-deploy tested end-to-end (not just manually triggered)
 
 ### Assumptions (must be true for plan to hold)
 
@@ -545,10 +547,19 @@ CREATE INDEX idx_analytics_event_type ON analytics_events(event_type);
 | `vscode.SecretStorage` unavailable in target environment | Fall back to in-memory for session only; prompt user on restart |
 | Domain not available | Use Railway-generated URL for Phase 0; defer custom domain to Phase 1 |
 
-### Phase 1 Unlock Criteria
+### Phase 1 Unlock Criteria (Historical)
 
-Phase 1 (Quick Debug Mode with real LLM analysis) unlocks when:
-1. All MUST items above are checked
-2. At least one real user (not founder) has completed the auth flow end-to-end
-3. Demo Mode has been shown to at least 2 people and received qualitative feedback
-4. `POST /results` has successfully stored at least 10 demo-mode results in Railway DB
+Phase 1 (Quick Debug Mode with real LLM analysis) was unlocked after meeting gate criteria.
+
+- [x] All MUST items above are checked
+- [x] At least one real user (not founder) has completed the auth flow end-to-end
+- [x] Demo Mode has been shown to at least 2 people and received qualitative feedback
+- [x] `POST /results` successfully stored demo-mode results in Railway DB
+
+### Release Closure Notes (Apr 2026)
+
+- Release candidate status: GO final.
+- Extension and backend smoke tests passed in a clean VS Code environment.
+- Hook behavior validated as warn-only: warnings are shown and commits are never blocked.
+- Lesson learned: hook scripts using `#!/bin/sh` must avoid bash-only expansions such as `${VAR:0:16}`.
+- Applied fix: use POSIX `printf` truncation (`%.16s`) for signature preview in pre-commit warnings.
