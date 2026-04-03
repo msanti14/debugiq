@@ -115,7 +115,7 @@ def upgrade() -> None:
         sa.Column("mode", sa.String(20), nullable=False),
         sa.Column("code_hash", sa.Text, nullable=False),
         sa.Column("findings_count", sa.Integer, nullable=False, server_default="0"),
-        sa.Column("findings", JSONB, nullable=False, server_default="'[]'"),
+        sa.Column("findings", JSONB, nullable=False, server_default=sa.text("'[]'::jsonb")),
         sa.Column("model_used", sa.Text, nullable=False),
         sa.Column("duration_ms", sa.Integer, nullable=True),
         sa.Column("demo_mode", sa.Boolean, nullable=False, server_default=sa.text("false")),
@@ -138,7 +138,7 @@ def upgrade() -> None:
         ),
         sa.Column("user_id", UUID(as_uuid=True), sa.ForeignKey("users.id"), nullable=True),
         sa.Column("event_type", sa.Text, nullable=False),
-        sa.Column("properties", JSONB, nullable=False, server_default="'{}'"),
+        sa.Column("properties", JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
         sa.Column(
             "occurred_at",
             sa.DateTime(timezone=True),
