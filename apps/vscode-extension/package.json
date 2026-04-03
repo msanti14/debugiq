@@ -3,8 +3,11 @@
   "displayName": "DebugIQ",
   "description": "AI-aware debugging for teams that use AI to code",
   "version": "0.1.0",
-  "private": true,
   "publisher": "debugiq",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/debugiq/debugiq"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -15,35 +18,43 @@
     "commands": [
       {
         "command": "debugiq.runDemo",
-        "title": "DebugIQ: Run Demo Analysis"
+        "title": "Run Demo Analysis",
+        "category": "DebugIQ"
       },
       {
         "command": "debugiq.runQuickDebug",
-        "title": "DebugIQ: Run Quick Debug"
+        "title": "Quick Debug (AI)",
+        "category": "DebugIQ"
       },
       {
         "command": "debugiq.runLearnDebug",
-        "title": "DebugIQ: Run Learn Debug"
-      },
-      {
-        "command": "debugiq.setApiKey",
-        "title": "DebugIQ: Set API Key"
-      },
-      {
-        "command": "debugiq.clearApiKey",
-        "title": "DebugIQ: Clear API Key"
-      },
-      {
-        "command": "debugiq.login",
-        "title": "DebugIQ: Log In"
-      },
-      {
-        "command": "debugiq.logout",
-        "title": "DebugIQ: Log Out"
+        "title": "Learn Debug (AI with Explanations)",
+        "category": "DebugIQ"
       },
       {
         "command": "debugiq.installPreCommitHook",
-        "title": "DebugIQ: Install Pre-Commit Hook"
+        "title": "Install Pre-Commit Hook",
+        "category": "DebugIQ"
+      },
+      {
+        "command": "debugiq.login",
+        "title": "Log In",
+        "category": "DebugIQ"
+      },
+      {
+        "command": "debugiq.logout",
+        "title": "Log Out",
+        "category": "DebugIQ"
+      },
+      {
+        "command": "debugiq.setApiKey",
+        "title": "Set API Key (BYOK)",
+        "category": "DebugIQ"
+      },
+      {
+        "command": "debugiq.clearApiKey",
+        "title": "Clear API Key",
+        "category": "DebugIQ"
       }
     ],
     "configuration": {
@@ -82,7 +93,8 @@
     "watch": "tsc -watch -p tsconfig.json",
     "lint": "eslint src --ext .ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "package": "vsce package --no-dependencies --allow-missing-repository"
   },
   "dependencies": {
     "@debugiq/shared-types": "workspace:*"
@@ -92,6 +104,7 @@
     "@types/vscode": "^1.90.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
+    "@vscode/vsce": "^2.26.0",
     "eslint": "^8.57.0",
     "typescript": "^5.4.0",
     "vitest": "^1.6.0"

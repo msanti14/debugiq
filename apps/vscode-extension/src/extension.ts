@@ -24,6 +24,25 @@ import type { SignatureInfo } from "./providers/SidebarProvider";
 declare const API_BASE_URL: string;
 
 export function activate(context: vscode.ExtensionContext): void {
+  // ── First-run onboarding ─────────────────────────────────────────────────────
+  const firstRunKey = "debugiq.firstRunShown";
+  if (!context.globalState.get<boolean>(firstRunKey)) {
+    context.globalState.update(firstRunKey, true);
+    vscode.window
+      .showInformationMessage(
+        "Welcome to DebugIQ! Three ways to debug: Demo (no setup), Quick Debug (Copilot), Learn Debug (Copilot + explanations). No API keys needed.",
+        "Run Demo",
+        "Show Commands",
+      )
+      .then((choice) => {
+        if (choice === "Run Demo") {
+          vscode.commands.executeCommand("debugiq.runDemo");
+        } else if (choice === "Show Commands") {
+          vscode.commands.executeCommand("workbench.action.quickOpen", ">DebugIQ ");
+        }
+      });
+  }
+
   // ── Service wiring ──────────────────────────────────────────────────────────
   const configuredUrl =
     vscode.workspace.getConfiguration("debugiq").get<string>("apiBaseUrl") ||
@@ -63,12 +82,12 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("debugiq.runQuickDebug", async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) {
-        vscode.window.showWarningMessage("Open a file first");
+        vscode.window.showWarningMessage("DebugIQ: Open a file in the editor first, then run Quick Debug.");
         return;
       }
       const selectedCode = editor.document.getText(editor.selection);
       if (!selectedCode.trim()) {
-        vscode.window.showWarningMessage("Select code to analyze");
+        vscode.window.showWarningMessage("DebugIQ: Select some code in the editor first.");
         return;
       }
       const language = mapToSupportedLanguage(editor.document.languageId);
@@ -77,7 +96,7 @@ export function activate(context: vscode.ExtensionContext): void {
       );
       if (models.length === 0) {
         vscode.window.showInformationMessage(
-          "GitHub Copilot not available. Showing demo result.",
+          "DebugIQ: GitHub Copilot is not available — install or sign in to Copilot to use AI analysis. Showing demo result.",
         );
         sidebar.show(demo.getFixture(language, "quick"));
         return;
@@ -97,9 +116,9 @@ export function activate(context: vscode.ExtensionContext): void {
             fireAnalyticsEvent(result, signatureInfo, auth, client);
           } catch (e) {
             if (e instanceof vscode.LanguageModelError) {
-              vscode.window.showErrorMessage("Copilot error: " + e.message);
+              vscode.window.showErrorMessage("DebugIQ: Copilot error — " + e.message);
             } else {
-              throw e;
+              vscode.window.showErrorMessage("DebugIQ: Analysis failed unexpectedly. Please try again.");
             }
           }
         },
@@ -112,12 +131,12 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("debugiq.runLearnDebug", async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) {
-        vscode.window.showWarningMessage("Open a file first");
+        vscode.window.showWarningMessage("DebugIQ: Open a file in the editor first, then run Learn Debug.");
         return;
       }
       const selectedCode = editor.document.getText(editor.selection);
       if (!selectedCode.trim()) {
-        vscode.window.showWarningMessage("Select code to analyze");
+        vscode.window.showWarningMessage("DebugIQ: Select some code in the editor first.");
         return;
       }
       const language = mapToSupportedLanguage(editor.document.languageId);
@@ -126,7 +145,7 @@ export function activate(context: vscode.ExtensionContext): void {
       );
       if (models.length === 0) {
         vscode.window.showInformationMessage(
-          "GitHub Copilot not available. Showing demo result.",
+          "DebugIQ: GitHub Copilot is not available — install or sign in to Copilot to use AI analysis. Showing demo result.",
         );
         sidebar.show(demo.getFixture(language, "learn"));
         return;
@@ -146,9 +165,9 @@ export function activate(context: vscode.ExtensionContext): void {
             fireAnalyticsEvent(result, signatureInfo, auth, client);
           } catch (e) {
             if (e instanceof vscode.LanguageModelError) {
-              vscode.window.showErrorMessage("Copilot error: " + e.message);
+              vscode.window.showErrorMessage("DebugIQ: Copilot error — " + e.message);
             } else {
-              throw e;
+              vscode.window.showErrorMessage("DebugIQ: Analysis failed unexpectedly. Please try again.");
             }
           }
         },
@@ -268,8 +287,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand("debugiq.logout", async () => {
-      await auth.logout();
-      vscode.window.showInformationMessage("DebugIQ: logged out.");
+      try {
+        await auth.logout();
+        vscode.window.showInformationMessage("DebugIQ: logged out.");
+      } catch {
+        vscode.window.showInformationMessage("DebugIQ: logged out.");
+      }
     }),
   );
 }

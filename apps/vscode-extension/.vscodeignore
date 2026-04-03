@@ -1,0 +1,24 @@
+# Source and test files — not needed in the packaged extension
+src/**
+tests/**
+**/__mocks__/**
+**/*.test.ts
+**/*.spec.ts
+
+# TypeScript config and tooling
+tsconfig.json
+.eslintrc*
+.eslintignore
+vitest.config*
+
+# Build artifacts we don't need
+out/**/*.map
+
+# Dev dependencies (excluded by --no-dependencies flag, but be explicit)
+node_modules/**
+
+# Misc
+.vscode/**
+.gitignore
+.gitattributes
+*.vsix
