@@ -38,14 +38,14 @@ const DEBUGIQ_HOOK_BODY = [
   "    _DQ_SEV=\"$(grep -o 'severity=[a-z]*' \"$_DQ_STATUS\" 2>/dev/null | cut -d= -f2)\"",
   "    _DQ_WARN_ON=\"$(grep -o 'warn_on=[a-z-]*' \"$_DQ_STATUS\" 2>/dev/null | cut -d= -f2)\"",
   '    if [ "$_DQ_STS" = "new" ] && [ -n "$_DQ_SIG" ]; then',
-  "      printf '[DebugIQ] Warning: new bug signature detected (%s...)\\n' \"${_DQ_SIG:0:16}\" >&2",
+  "      printf '[DebugIQ] Warning: new bug signature detected (%.16s...)\\n' \"$_DQ_SIG\" >&2",
   '      if [ "$_DQ_SEV" = "critical" ] || [ "$_DQ_SEV" = "high" ]; then',
   "        printf '[DebugIQ] Severity: %s — review before merging.\\n' \"$_DQ_SEV\" >&2",
   "      fi",
   "      printf '[DebugIQ] Tip: run \"DebugIQ: Run Quick Debug\" to review findings.\\n' >&2",
   '    elif [ "$_DQ_STS" = "repeated" ] && [ -n "$_DQ_SIG" ] && [ "$_DQ_WARN_ON" = "new-or-critical" ]; then',
   '      if [ "$_DQ_SEV" = "critical" ] || [ "$_DQ_SEV" = "high" ]; then',
-  "        printf '[DebugIQ] Warning: repeated high-severity bug signature (%s...)\\n' \"${_DQ_SIG:0:16}\" >&2",
+  "        printf '[DebugIQ] Warning: repeated high-severity bug signature (%.16s...)\\n' \"$_DQ_SIG\" >&2",
   "        printf '[DebugIQ] Severity: %s — this pattern keeps appearing, review before merging.\\n' \"$_DQ_SEV\" >&2",
   "        printf '[DebugIQ] Tip: run \"DebugIQ: Run Quick Debug\" to review findings.\\n' >&2",
   "      fi",
@@ -53,8 +53,7 @@ const DEBUGIQ_HOOK_BODY = [
   "  fi",
   ") || true",
 ]
-  .join("\n")
-  .replaceAll("${_DQ_SIG:0:16}", "\${_DQ_SIG:0:16}");
+  .join("\n");
 
 const DEBUGIQ_HOOK_SECTION =
   HOOK_START_MARKER + "\n" + DEBUGIQ_HOOK_BODY + "\n" + HOOK_END_MARKER;
