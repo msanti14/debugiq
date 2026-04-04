@@ -26,6 +26,10 @@ node_modules/
 apps/vscode-extension/out/
 apps/vscode-extension/*.vsix
 
+# Next.js build output and incremental compile cache
+apps/web/.next/
+apps/web/tsconfig.tsbuildinfo
+
 # OS
 .DS_Store
 Thumbs.db
