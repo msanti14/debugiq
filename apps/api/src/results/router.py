@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 from typing import Literal
 
@@ -117,9 +118,13 @@ def get_result(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    try:
+        rid = uuid.UUID(result_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="result_not_found")
     result = (
         db.query(AnalysisResult)
-        .filter(AnalysisResult.id == result_id, AnalysisResult.user_id == current_user.id)
+        .filter(AnalysisResult.id == rid, AnalysisResult.user_id == current_user.id)
         .first()
     )
     if not result:

@@ -1,14 +1,16 @@
+import re
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from src.analytics.router import router as analytics_router
 from src.auth.router import router as auth_router
 from src.core.config import settings
 from src.db.session import get_db
 from src.results.router import router as results_router
 from src.users.router import router as users_router
-from src.analytics.router import router as analytics_router
 
 app = FastAPI(
     title="DebugIQ API",
@@ -18,11 +20,20 @@ app = FastAPI(
 )
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
-# Phase 0: allow VS Code webview and localhost only.
-# Production: lock down to the confirmed origin after domain is set.
+# Always allow VS Code webviews and localhost dev origins.
+# If ALLOWED_WEB_ORIGIN is set (e.g. https://debugiq.vercel.app), that exact
+# origin is also allowed. No wildcard is ever used in production.
+_base_origins = r"vscode-webview://.*|https?://localhost(:\d+)?"
+
+if settings.allowed_web_origin:
+    _escaped = re.escape(settings.allowed_web_origin)
+    _cors_regex = rf"^({_base_origins}|{_escaped})$"
+else:
+    _cors_regex = rf"^({_base_origins})$"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^(vscode-webview://.*|https?://localhost(:\d+)?)$",
+    allow_origin_regex=_cors_regex,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
