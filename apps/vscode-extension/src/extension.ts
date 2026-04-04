@@ -14,6 +14,7 @@ import { normalizeFindingsForSignature, computeBugSignature } from "./analyzer/B
 import { SignatureStore } from "./signatures/SignatureStore";
 import { buildHookScript } from "./signatures/HookInstaller";
 import { evaluateSignatureRules, highestSeverity } from "./signatures/SignatureRules";
+import { resolveUiLanguage, type UiLanguage } from "./i18n";
 import type { SupportedLanguage, SaveResultRequest, SaveResultResponse, AnalysisResult } from "@debugiq/shared-types";
 import type { PostAnalyticsEventRequest } from "@debugiq/shared-types";
 import type { SignatureInfo } from "./providers/SidebarProvider";
@@ -28,20 +29,28 @@ const injectedApiBaseUrl: string =
     : "";
 
 export function activate(context: vscode.ExtensionContext): void {
+  const configuredOutputLanguage =
+    vscode.workspace.getConfiguration("debugiq").get<"auto" | UiLanguage>("outputLanguage") ?? "auto";
+  const uiLanguage = resolveUiLanguage(configuredOutputLanguage, vscode.env.language);
+  const t = (en: string, es: string): string => (uiLanguage === "es" ? es : en);
+
   // ── First-run onboarding ─────────────────────────────────────────────────────
   const firstRunKey = "debugiq.firstRunShown";
   if (!context.globalState.get<boolean>(firstRunKey)) {
     context.globalState.update(firstRunKey, true);
     vscode.window
       .showInformationMessage(
-        "Welcome to DebugIQ! Three ways to debug: Demo (no setup), Quick Debug (Copilot), Learn Debug (Copilot + explanations). No API keys needed.",
-        "Run Demo",
-        "Show Commands",
+        t(
+          "Welcome to DebugIQ! Three ways to debug: Demo (no setup), Quick Debug (Copilot), Learn Debug (Copilot + explanations). No API keys needed.",
+          "Bienvenido a DebugIQ. Tienes tres formas de depurar: Demo (sin configuracion), Quick Debug (Copilot) y Learn Debug (Copilot + explicaciones). No necesitas API keys.",
+        ),
+        t("Run Demo", "Ejecutar Demo"),
+        t("Show Commands", "Ver Comandos"),
       )
       .then((choice) => {
-        if (choice === "Run Demo") {
+        if (choice === "Run Demo" || choice === "Ejecutar Demo") {
           vscode.commands.executeCommand("debugiq.runDemo");
-        } else if (choice === "Show Commands") {
+        } else if (choice === "Show Commands" || choice === "Ver Comandos") {
           vscode.commands.executeCommand("workbench.action.quickOpen", ">DebugIQ ");
         }
       });
@@ -79,7 +88,7 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.window.activeTextEditor?.document.languageId ?? "";
       const language = mapToSupportedLanguage(languageId);
       const result = demo.getFixture(language, "quick");
-      sidebar.show(result);
+      sidebar.show(result, undefined, undefined, uiLanguage);
     }),
   );
 
@@ -88,43 +97,59 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("debugiq.runQuickDebug", async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) {
-        vscode.window.showWarningMessage("DebugIQ: Open a file in the editor first, then run Quick Debug.");
+        vscode.window.showWarningMessage(
+          t(
+            "DebugIQ: Open a file in the editor first, then run Quick Debug.",
+            "DebugIQ: Abre un archivo en el editor y luego ejecuta Quick Debug.",
+          ),
+        );
         return;
       }
       const selectedCode = editor.document.getText(editor.selection);
       if (!selectedCode.trim()) {
-        vscode.window.showWarningMessage("DebugIQ: Select some code in the editor first.");
+        vscode.window.showWarningMessage(
+          t(
+            "DebugIQ: Select some code in the editor first.",
+            "DebugIQ: Selecciona codigo en el editor primero.",
+          ),
+        );
         return;
       }
       const language = mapToSupportedLanguage(editor.document.languageId);
-      const models = await vscode.lm.selectChatModels(
-        modelRouter.toLmSelector("quick", language),
-      );
-      if (models.length === 0) {
+      const model = await selectCopilotModel(modelRouter, "quick", language);
+      if (!model) {
         vscode.window.showInformationMessage(
-          "DebugIQ: GitHub Copilot is not available — install or sign in to Copilot to use AI analysis. Showing demo result.",
+          t(
+            "DebugIQ: GitHub Copilot is not available — install or sign in to Copilot to use AI analysis. Showing demo result.",
+            "DebugIQ: GitHub Copilot no esta disponible. Instala o inicia sesion en Copilot para usar analisis con IA. Mostrando resultado demo.",
+          ),
         );
-        sidebar.show(demo.getFixture(language, "quick"));
+        sidebar.show(demo.getFixture(language, "quick"), undefined, undefined, uiLanguage);
         return;
       }
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: "DebugIQ: Analyzing…",
+          title: t("DebugIQ: Analyzing...", "DebugIQ: Analizando..."),
           cancellable: false,
         },
         async () => {
           try {
-            const result = await analyze(selectedCode, language, models[0]);
-            const { signatureInfo, suggestions } = computeAndStoreSignature(result, signatureStore, sigEnabled, sigSensitivity, hookWarnOn);
-            sidebar.show(result, signatureInfo, suggestions);
+            const result = await analyze(selectedCode, language, model, uiLanguage);
+            const { signatureInfo, suggestions } = computeAndStoreSignature(result, signatureStore, sigEnabled, sigSensitivity, hookWarnOn, uiLanguage);
+            sidebar.show(result, signatureInfo, suggestions, uiLanguage);
             autoSave(result, auth, client);
             fireAnalyticsEvent(result, signatureInfo, auth, client);
           } catch (e) {
             if (e instanceof vscode.LanguageModelError) {
-              vscode.window.showErrorMessage("DebugIQ: Copilot error — " + e.message);
+              vscode.window.showErrorMessage(t("DebugIQ: Copilot error - ", "DebugIQ: Error de Copilot - ") + e.message);
             } else {
-              vscode.window.showErrorMessage("DebugIQ: Analysis failed unexpectedly. Please try again.");
+              vscode.window.showErrorMessage(
+                t(
+                  "DebugIQ: Analysis failed unexpectedly. Please try again.",
+                  "DebugIQ: El analisis fallo de forma inesperada. Intenta de nuevo.",
+                ),
+              );
             }
           }
         },
@@ -137,43 +162,59 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("debugiq.runLearnDebug", async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) {
-        vscode.window.showWarningMessage("DebugIQ: Open a file in the editor first, then run Learn Debug.");
+        vscode.window.showWarningMessage(
+          t(
+            "DebugIQ: Open a file in the editor first, then run Learn Debug.",
+            "DebugIQ: Abre un archivo en el editor y luego ejecuta Learn Debug.",
+          ),
+        );
         return;
       }
       const selectedCode = editor.document.getText(editor.selection);
       if (!selectedCode.trim()) {
-        vscode.window.showWarningMessage("DebugIQ: Select some code in the editor first.");
+        vscode.window.showWarningMessage(
+          t(
+            "DebugIQ: Select some code in the editor first.",
+            "DebugIQ: Selecciona codigo en el editor primero.",
+          ),
+        );
         return;
       }
       const language = mapToSupportedLanguage(editor.document.languageId);
-      const models = await vscode.lm.selectChatModels(
-        modelRouter.toLmSelector("learn", language),
-      );
-      if (models.length === 0) {
+      const model = await selectCopilotModel(modelRouter, "learn", language);
+      if (!model) {
         vscode.window.showInformationMessage(
-          "DebugIQ: GitHub Copilot is not available — install or sign in to Copilot to use AI analysis. Showing demo result.",
+          t(
+            "DebugIQ: GitHub Copilot is not available — install or sign in to Copilot to use AI analysis. Showing demo result.",
+            "DebugIQ: GitHub Copilot no esta disponible. Instala o inicia sesion en Copilot para usar analisis con IA. Mostrando resultado demo.",
+          ),
         );
-        sidebar.show(demo.getFixture(language, "learn"));
+        sidebar.show(demo.getFixture(language, "learn"), undefined, undefined, uiLanguage);
         return;
       }
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: "DebugIQ: Teaching through this bug…",
+          title: t("DebugIQ: Teaching through this bug...", "DebugIQ: Ensenando a traves de este bug..."),
           cancellable: false,
         },
         async () => {
           try {
-            const result = await analyzeLearn(selectedCode, language, models[0]);
-            const { signatureInfo, suggestions } = computeAndStoreSignature(result, signatureStore, sigEnabled, sigSensitivity, hookWarnOn);
-            sidebar.show(result, signatureInfo, suggestions);
+            const result = await analyzeLearn(selectedCode, language, model, uiLanguage);
+            const { signatureInfo, suggestions } = computeAndStoreSignature(result, signatureStore, sigEnabled, sigSensitivity, hookWarnOn, uiLanguage);
+            sidebar.show(result, signatureInfo, suggestions, uiLanguage);
             autoSave(result, auth, client);
             fireAnalyticsEvent(result, signatureInfo, auth, client);
           } catch (e) {
             if (e instanceof vscode.LanguageModelError) {
-              vscode.window.showErrorMessage("DebugIQ: Copilot error — " + e.message);
+              vscode.window.showErrorMessage(t("DebugIQ: Copilot error - ", "DebugIQ: Error de Copilot - ") + e.message);
             } else {
-              vscode.window.showErrorMessage("DebugIQ: Analysis failed unexpectedly. Please try again.");
+              vscode.window.showErrorMessage(
+                t(
+                  "DebugIQ: Analysis failed unexpectedly. Please try again.",
+                  "DebugIQ: El analisis fallo de forma inesperada. Intenta de nuevo.",
+                ),
+              );
             }
           }
         },
@@ -186,14 +227,22 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("debugiq.installPreCommitHook", async () => {
       const folders = vscode.workspace.workspaceFolders;
       if (!folders?.length) {
-        vscode.window.showWarningMessage("DebugIQ: No workspace folder open.");
+        vscode.window.showWarningMessage(
+          t(
+            "DebugIQ: No workspace folder open.",
+            "DebugIQ: No hay una carpeta de workspace abierta.",
+          ),
+        );
         return;
       }
       const root = folders[0].uri.fsPath;
       const hooksDir = path.join(root, ".git", "hooks");
       if (!fs.existsSync(hooksDir)) {
         vscode.window.showErrorMessage(
-          "DebugIQ: No .git/hooks directory found. Is this a git repository?",
+          t(
+            "DebugIQ: No .git/hooks directory found. Is this a git repository?",
+            "DebugIQ: No se encontro el directorio .git/hooks. Es este un repositorio git?",
+          ),
         );
         return;
       }
@@ -209,7 +258,10 @@ export function activate(context: vscode.ExtensionContext): void {
         fs.writeFileSync(hookPath, newContent, "utf8");
       } catch (writeErr) {
         vscode.window.showErrorMessage(
-          `DebugIQ: Could not write hook file — ${String(writeErr)}. Check file permissions.`,
+          t(
+            `DebugIQ: Could not write hook file - ${String(writeErr)}. Check file permissions.`,
+            `DebugIQ: No se pudo escribir el hook - ${String(writeErr)}. Revisa permisos de archivo.`,
+          ),
         );
         return;
       }
@@ -219,7 +271,10 @@ export function activate(context: vscode.ExtensionContext): void {
         // chmod not supported on all platforms (e.g. Windows) — ignore
       }
       vscode.window.showInformationMessage(
-        "DebugIQ: Pre-commit hook installed (warn-only). It will never block a commit.",
+        t(
+          "DebugIQ: Pre-commit hook installed (warn-only). It will never block a commit.",
+          "DebugIQ: Hook pre-commit instalado (solo advertencias). Nunca bloqueara un commit.",
+        ),
       );
     }),
   );
@@ -229,11 +284,11 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("debugiq.setApiKey", async () => {
       const provider = await vscode.window.showQuickPick(
         ["Claude (Anthropic)", "OpenAI (GPT-4o)"],
-        { placeHolder: "Select API key provider" },
+        { placeHolder: t("Select API key provider", "Selecciona proveedor de API key") },
       );
       if (!provider) return;
       const key = await vscode.window.showInputBox({
-        prompt: "Enter your API key",
+        prompt: t("Enter your API key", "Ingresa tu API key"),
         password: true,
         ignoreFocusOut: true,
       });
@@ -242,7 +297,12 @@ export function activate(context: vscode.ExtensionContext): void {
         ? KeychainService.CLAUDE_API_KEY
         : KeychainService.OPENAI_API_KEY;
       await keychain.store(keyName, key);
-      vscode.window.showInformationMessage("API key saved securely in OS keychain");
+      vscode.window.showInformationMessage(
+        t(
+          "API key saved securely in OS keychain",
+          "API key guardada de forma segura en el llavero del sistema",
+        ),
+      );
     }),
   );
 
@@ -251,32 +311,32 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("debugiq.clearApiKey", async () => {
       const target = await vscode.window.showQuickPick(
         ["Claude (Anthropic)", "OpenAI (GPT-4o)", "Both"],
-        { placeHolder: "Which key to clear?" },
+        { placeHolder: t("Which key to clear?", "Que clave quieres borrar?") },
       );
       if (!target) return;
       const confirmed = await vscode.window.showWarningMessage(
-        "Clear " + target + " API key?",
+        t("Clear ", "Borrar ") + target + t(" API key?", " API key?"),
         { modal: true },
-        "Clear",
+        t("Clear", "Borrar"),
       );
-      if (confirmed !== "Clear") return;
+      if (confirmed !== "Clear" && confirmed !== "Borrar") return;
       if (target === "Claude (Anthropic)" || target === "Both") {
         await keychain.delete(KeychainService.CLAUDE_API_KEY);
       }
       if (target === "OpenAI (GPT-4o)" || target === "Both") {
         await keychain.delete(KeychainService.OPENAI_API_KEY);
       }
-      vscode.window.showInformationMessage("API key cleared");
+      vscode.window.showInformationMessage(t("API key cleared", "API key borrada"));
     }),
   );
 
   // Login / logout
   context.subscriptions.push(
     vscode.commands.registerCommand("debugiq.login", async () => {
-      const email = await vscode.window.showInputBox({ prompt: "Email", ignoreFocusOut: true });
+      const email = await vscode.window.showInputBox({ prompt: t("Email", "Correo"), ignoreFocusOut: true });
       if (!email) return;
       const password = await vscode.window.showInputBox({
-        prompt: "Password",
+        prompt: t("Password", "Contrasena"),
         password: true,
         ignoreFocusOut: true,
       });
@@ -284,9 +344,14 @@ export function activate(context: vscode.ExtensionContext): void {
 
       try {
         await auth.login(email, password);
-        vscode.window.showInformationMessage("DebugIQ: logged in successfully.");
+        vscode.window.showInformationMessage(t("DebugIQ: logged in successfully.", "DebugIQ: sesion iniciada correctamente."));
       } catch (err) {
-        vscode.window.showErrorMessage(`DebugIQ: login failed — ${String(err)}`);
+        vscode.window.showErrorMessage(
+          t(
+            `DebugIQ: login failed - ${String(err)}`,
+            `DebugIQ: fallo de inicio de sesion - ${String(err)}`,
+          ),
+        );
       }
     }),
   );
@@ -295,9 +360,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("debugiq.logout", async () => {
       try {
         await auth.logout();
-        vscode.window.showInformationMessage("DebugIQ: logged out.");
+        vscode.window.showInformationMessage(t("DebugIQ: logged out.", "DebugIQ: sesion cerrada."));
       } catch {
-        vscode.window.showInformationMessage("DebugIQ: logged out.");
+        vscode.window.showInformationMessage(t("DebugIQ: logged out.", "DebugIQ: sesion cerrada."));
       }
     }),
   );
@@ -340,6 +405,7 @@ function computeAndStoreSignature(
   sigEnabled: boolean,
   sensitivity: "strict" | "balanced",
   hookWarnOn: "new-signature" | "new-or-critical",
+  language: UiLanguage,
 ): { signatureInfo: SignatureInfo | undefined; suggestions: string[] } {
   if (!sigEnabled) {
     return { signatureInfo: undefined, suggestions: [] };
@@ -366,6 +432,7 @@ function computeAndStoreSignature(
     mode: result.mode,
     highestSeverity: highestSeverity(sevs),
     sensitivity,
+    language,
   });
 
   return { signatureInfo: { signature, status }, suggestions };
@@ -455,4 +522,34 @@ function fireAnalyticsEvent(
     };
     client.post<{ event_id: string }>("/analytics/events", payload).catch(() => {});
   }).catch(() => {});
+}
+
+async function selectCopilotModel(
+  modelRouter: ModelRouter,
+  mode: "quick" | "learn",
+  language: SupportedLanguage,
+): Promise<vscode.LanguageModelChat | undefined> {
+  const strictMatches = await vscode.lm.selectChatModels(
+    modelRouter.toLmSelector(mode, language),
+  );
+  if (strictMatches.length > 0) {
+    return strictMatches[0];
+  }
+
+  // Fallback: some accounts expose Copilot model families with different IDs.
+  const anyCopilot = await vscode.lm.selectChatModels({ vendor: "copilot" });
+  if (anyCopilot.length === 0) {
+    return undefined;
+  }
+
+  const preferred = anyCopilot.find((m) => {
+    const id = (m.id ?? "").toLowerCase();
+    const name = (m.name ?? "").toLowerCase();
+    const text = `${id} ${name}`;
+    return mode === "learn"
+      ? text.includes("claude") || text.includes("sonnet")
+      : text.includes("gpt") || text.includes("o1") || text.includes("o3");
+  });
+
+  return preferred ?? anyCopilot[0];
 }

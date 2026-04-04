@@ -2,8 +2,27 @@
   "name": "debugiq",
   "displayName": "DebugIQ",
   "description": "AI-aware debugging for teams that use AI to code",
-  "version": "0.1.0",
-  "publisher": "debugiq",
+  "version": "0.1.2",
+  "publisher": "msanti14",
+  "license": "MIT",
+  "homepage": "https://github.com/debugiq/debugiq#readme",
+  "bugs": {
+    "url": "https://github.com/debugiq/debugiq/issues"
+  },
+  "keywords": [
+    "debugging",
+    "ai",
+    "copilot",
+    "bug-detection",
+    "code-analysis",
+    "developer-productivity",
+    "secure-coding",
+    "vscode"
+  ],
+  "galleryBanner": {
+    "color": "#0f172a",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/debugiq/debugiq"
@@ -14,6 +33,7 @@
   "categories": ["Linters", "Other"],
   "activationEvents": ["onStartupFinished"],
   "main": "./out/extension.js",
+  "icon": "media/icon.png",
   "contributes": {
     "commands": [
       {
@@ -81,6 +101,12 @@
           "enum": ["new-signature", "new-or-critical"],
           "default": "new-signature",
           "description": "When to emit a pre-commit hook warning. 'new-signature' warns for any new signature; 'new-or-critical' also warns for critical findings on repeated signatures."
+        },
+        "debugiq.outputLanguage": {
+          "type": "string",
+          "enum": ["auto", "en", "es"],
+          "default": "auto",
+          "description": "Language for DebugIQ outputs in notifications and sidebar. 'auto' follows the VS Code UI language."
         }
       }
     },

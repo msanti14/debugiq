@@ -131,7 +131,7 @@ Current status: Apr 2026 release candidate completed (GO final).
 
 - [x] All checklist items above pass
 - [x] Version in `package.json` is correct
-- [ ] `CHANGELOG` or release notes updated (if applicable)
+- [x] `CHANGELOG` or release notes updated (if applicable)
 - [x] `.vsix` artifact archived for distribution
 
 Latest release evidence:

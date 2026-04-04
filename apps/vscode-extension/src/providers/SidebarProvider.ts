@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { AnalysisResult, Finding } from "@debugiq/shared-types";
+import type { UiLanguage } from "../i18n";
 
 /**
  * SignatureInfo carries the computed bug signature and its classification
@@ -22,8 +23,8 @@ export interface SignatureInfo {
 export class SidebarProvider {
   private panel: vscode.WebviewPanel | undefined;
 
-  show(result: AnalysisResult, signatureInfo?: SignatureInfo, suggestions?: string[]): void {
-    const panelTitle = derivePanelTitle(result);
+  show(result: AnalysisResult, signatureInfo?: SignatureInfo, suggestions?: string[], language: UiLanguage = "en"): void {
+    const panelTitle = derivePanelTitle(result, language);
 
     if (this.panel) {
       this.panel.title = panelTitle;
@@ -44,7 +45,7 @@ export class SidebarProvider {
       });
     }
 
-    this.panel.webview.html = SidebarProvider.renderHtml(result, signatureInfo, suggestions);
+    this.panel.webview.html = SidebarProvider.renderHtml(result, signatureInfo, suggestions, language);
   }
 
   /**
@@ -54,7 +55,7 @@ export class SidebarProvider {
    * Optional `suggestions` renders a "Suggested next steps" section below the
    * signature section. All strings are HTML-escaped before rendering.
    */
-  static renderHtml(result: AnalysisResult, signatureInfo?: SignatureInfo, suggestions?: string[]): string {
+  static renderHtml(result: AnalysisResult, signatureInfo?: SignatureInfo, suggestions?: string[], language: UiLanguage = "en"): string {
     const severityOrder: Record<string, number> = {
       critical: 0,
       high: 1,
@@ -70,26 +71,28 @@ export class SidebarProvider {
 
     const findingItems = sorted.map((f) => renderFinding(f, result.mode)).join("\n");
 
-    const modeLabel = result.mode === "learn" ? "Learn" : "Quick";
+    const modeLabel = result.mode === "learn" ? t(language, "modeLearn") : t(language, "modeQuick");
     const langLabel =
       result.language.charAt(0).toUpperCase() + result.language.slice(1);
 
     const heading = result.demo_mode
-      ? "DebugIQ — Demo Results"
+      ? t(language, "headingDemo")
       : result.mode === "learn"
-        ? "DebugIQ — Learn Mode"
-        : "DebugIQ — Analysis Results";
+        ? t(language, "headingLearn")
+        : t(language, "headingAnalysis");
 
-    const subLabel = result.demo_mode ? " · No API key required" : "";
+    const subLabel = result.demo_mode ? t(language, "subNoApiKey") : "";
 
     const signatureSection = signatureInfo
-      ? renderSignatureSection(signatureInfo)
+      ? renderSignatureSection(signatureInfo, language)
       : "";
 
     const suggestionsSection =
       suggestions && suggestions.length > 0
-        ? renderSuggestionsSection(suggestions)
+        ? renderSuggestionsSection(suggestions, language)
         : "";
+
+      const findingLabel = result.findings_count === 1 ? t(language, "findingOne") : t(language, "findingMany");
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -263,7 +266,7 @@ export class SidebarProvider {
 </head>
 <body>
   <h2>${escapeHtml(heading)}</h2>
-  <p class="meta">${langLabel} · ${modeLabel} mode · ${result.findings_count} finding${result.findings_count !== 1 ? "s" : ""}${subLabel}</p>
+  <p class="meta">${langLabel} · ${modeLabel} ${t(language, "modeSuffix")} · ${result.findings_count} ${findingLabel}${subLabel}</p>
   ${signatureSection}${suggestionsSection}${findingItems}
 </body>
 </html>`;
@@ -272,28 +275,31 @@ export class SidebarProvider {
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
-function derivePanelTitle(result: AnalysisResult): string {
-  if (result.demo_mode) return "DebugIQ — Demo";
-  return result.mode === "learn" ? "DebugIQ — Learn Mode" : "DebugIQ — Quick Debug";
+function derivePanelTitle(result: AnalysisResult, language: UiLanguage): string {
+  if (result.demo_mode) return language === "es" ? "DebugIQ — Demo" : "DebugIQ — Demo";
+  if (result.mode === "learn") {
+    return language === "es" ? "DebugIQ — Modo Aprendizaje" : "DebugIQ — Learn Mode";
+  }
+  return language === "es" ? "DebugIQ — Depuracion Rapida" : "DebugIQ — Quick Debug";
 }
 
-function renderSignatureSection(info: SignatureInfo): string {
+function renderSignatureSection(info: SignatureInfo, language: UiLanguage): string {
   const shortSig = info.signature.slice(0, 16) + "…";
-  const statusLabel = info.status === "new" ? "New signature" : "Repeated signature";
+  const statusLabel = info.status === "new" ? t(language, "signatureNew") : t(language, "signatureRepeated");
   return `<div class="signature-section">
-  <span class="sig-label">Bug Signature</span>
+  <span class="sig-label">${t(language, "signatureLabel")}</span>
   <code class="sig-value">${escapeHtml(shortSig)}</code>
   <span class="sig-status sig-${escapeHtml(info.status)}">${escapeHtml(statusLabel)}</span>
 </div>
 `;
 }
 
-function renderSuggestionsSection(suggestions: string[]): string {
+function renderSuggestionsSection(suggestions: string[], language: UiLanguage): string {
   const items = suggestions
     .map((s) => `<li>${escapeHtml(s)}</li>`)
     .join("\n    ");
   return `<div class="suggestions-section">
-  <div class="suggestions-heading">Suggested next steps</div>
+  <div class="suggestions-heading">${t(language, "suggestedNextSteps")}</div>
   <ul class="suggestions-list">
     ${items}
   </ul>
@@ -328,6 +334,43 @@ function renderFinding(f: Finding, mode: AnalysisResult["mode"]): string {
   ${fixBlock}
   ${explanationBlock}
 </div>`;
+}
+
+function t(language: UiLanguage, key: string): string {
+  const table: Record<UiLanguage, Record<string, string>> = {
+    en: {
+      modeLearn: "Learn",
+      modeQuick: "Quick",
+      modeSuffix: "mode",
+      findingOne: "finding",
+      findingMany: "findings",
+      headingDemo: "DebugIQ — Demo Results",
+      headingLearn: "DebugIQ — Learn Mode",
+      headingAnalysis: "DebugIQ — Analysis Results",
+      subNoApiKey: " · No API key required",
+      signatureLabel: "Bug Signature",
+      signatureNew: "New signature",
+      signatureRepeated: "Repeated signature",
+      suggestedNextSteps: "Suggested next steps",
+    },
+    es: {
+      modeLearn: "Aprendizaje",
+      modeQuick: "Rapido",
+      modeSuffix: "modo",
+      findingOne: "hallazgo",
+      findingMany: "hallazgos",
+      headingDemo: "DebugIQ — Resultados Demo",
+      headingLearn: "DebugIQ — Modo Aprendizaje",
+      headingAnalysis: "DebugIQ — Resultados del Analisis",
+      subNoApiKey: " · No requiere API key",
+      signatureLabel: "Firma de Bug",
+      signatureNew: "Firma nueva",
+      signatureRepeated: "Firma repetida",
+      suggestedNextSteps: "Siguientes pasos sugeridos",
+    },
+  };
+
+  return table[language][key] ?? table.en[key] ?? key;
 }
 
 function escapeHtml(text: string): string {

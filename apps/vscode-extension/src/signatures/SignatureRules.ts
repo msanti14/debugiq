@@ -9,6 +9,7 @@
  */
 
 import type { AnalysisMode } from "@debugiq/shared-types";
+import type { UiLanguage } from "../i18n";
 
 // ── Severity ordering ─────────────────────────────────────────────────────────
 
@@ -49,6 +50,8 @@ export interface RulesInput {
   highestSeverity: SeverityLevel | undefined;
   /** Sensitivity setting from VS Code configuration */
   sensitivity: "strict" | "balanced";
+  /** Preferred UI language for suggestion strings */
+  language?: UiLanguage;
 }
 
 // ── evaluateSignatureRules ────────────────────────────────────────────────────
@@ -60,6 +63,7 @@ export interface RulesInput {
 export function evaluateSignatureRules(input: RulesInput): string[] {
   const suggestions: string[] = [];
   const { status, mode, highestSeverity: sev, sensitivity } = input;
+  const language: UiLanguage = inputLanguage(input);
 
   const isHighOrCritical =
     sev === "critical" || sev === "high";
@@ -68,30 +72,42 @@ export function evaluateSignatureRules(input: RulesInput): string[] {
   // Rule 1: repeated + high/critical → suggest Learn Mode
   if (status === "repeated" && isHighOrCritical) {
     suggestions.push(
-      'This pattern keeps recurring at high severity. Consider running "DebugIQ: Run Learn Debug" to deeply understand the root cause.',
+      language === "es"
+        ? 'Este patron se repite con severidad alta. Considera ejecutar "DebugIQ: Run Learn Debug" para entender mejor la causa raiz.'
+        : 'This pattern keeps recurring at high severity. Consider running "DebugIQ: Run Learn Debug" to deeply understand the root cause.',
     );
   }
 
   // Rule 2: repeated + strict sensitivity → suggest creating a team task
   if (status === "repeated" && sensitivity === "strict") {
     suggestions.push(
-      "Repeated signature detected. Consider creating a team task to address this bug pattern systematically.",
+      language === "es"
+        ? "Se detecto una firma repetida. Considera crear una tarea de equipo para abordar este patron de bug de forma sistematica."
+        : "Repeated signature detected. Consider creating a team task to address this bug pattern systematically.",
     );
   }
 
   // Rule 3: new + critical → suggest sharing with team
   if (status === "new" && isCritical) {
     suggestions.push(
-      "New critical-severity signature found. Share this finding with your team before merging.",
+      language === "es"
+        ? "Se encontro una firma nueva de severidad critica. Comparte este hallazgo con tu equipo antes de mergear."
+        : "New critical-severity signature found. Share this finding with your team before merging.",
     );
   }
 
   // Rule 4: quick mode + repeated → suggest Learn Mode for deeper analysis
   if (mode === "quick" && status === "repeated") {
     suggestions.push(
-      'This signature was seen before. Try "DebugIQ: Run Learn Debug" for a detailed explanation and exercise.',
+      language === "es"
+        ? 'Esta firma ya se vio antes. Prueba "DebugIQ: Run Learn Debug" para obtener una explicacion detallada y un ejercicio.'
+        : 'This signature was seen before. Try "DebugIQ: Run Learn Debug" for a detailed explanation and exercise.',
     );
   }
 
   return suggestions;
+}
+
+function inputLanguage(input: RulesInput): UiLanguage {
+  return input.language === "es" ? "es" : "en";
 }

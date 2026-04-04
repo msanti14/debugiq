@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { randomUUID } from "crypto";
 import type { Finding, AnalysisResult, SupportedLanguage } from "@debugiq/shared-types";
 import { computeCodeHash } from "./QuickAnalyzer";
+import type { UiLanguage } from "../i18n";
 
 /**
  * LearnAnalyzer — drives a Learn-mode analysis via vscode.lm.
@@ -26,11 +27,19 @@ import { computeCodeHash } from "./QuickAnalyzer";
 export function buildLearnPrompt(
   code: string,
   language: SupportedLanguage,
+  responseLanguage: UiLanguage = "en",
 ): vscode.LanguageModelChatMessage[] {
+  const localeInstruction =
+    responseLanguage === "es"
+      ? "Write title, description, fix_hint, and explanation content in Spanish. Keep the required section headers exactly as specified."
+      : "Write title, description, fix_hint, and explanation content in English. Keep the required section headers exactly as specified.";
+
   const systemText = `You are a patient debugging mentor helping a developer learn from their mistakes. \
 Analyse the code the user provides and return ONLY a valid JSON array of findings. \
 Do not include any prose, markdown, or text outside the JSON array itself. \
 If no issues are found, return an empty array: [].
+
+${localeInstruction}
 
 Each finding must be a JSON object with exactly these fields:
 - id: string (unique identifier for this finding, e.g. "f-001")
@@ -138,10 +147,11 @@ export async function analyzeLearn(
   code: string,
   language: SupportedLanguage,
   model: vscode.LanguageModelChat,
+  responseLanguage: UiLanguage = "en",
 ): Promise<AnalysisResult> {
   const startTime = Date.now();
 
-  const messages = buildLearnPrompt(code, language);
+  const messages = buildLearnPrompt(code, language, responseLanguage);
   const cts = new vscode.CancellationTokenSource();
   const response = await model.sendRequest(messages, {}, cts.token);
 

@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { createHash, randomUUID } from "crypto";
 import type { Finding, AnalysisResult, SupportedLanguage } from "@debugiq/shared-types";
+import type { UiLanguage } from "../i18n";
 
 /**
  * QuickAnalyzer — drives a single Quick-mode analysis via vscode.lm.
@@ -24,11 +25,19 @@ import type { Finding, AnalysisResult, SupportedLanguage } from "@debugiq/shared
 export function buildPrompt(
   code: string,
   language: SupportedLanguage,
+  responseLanguage: UiLanguage = "en",
 ): vscode.LanguageModelChatMessage[] {
+  const localeInstruction =
+    responseLanguage === "es"
+      ? "Write title, description, and fix_hint in Spanish."
+      : "Write title, description, and fix_hint in English.";
+
   const systemText = `You are a security-focused code reviewer. \
 Analyse the code the user provides and return ONLY a valid JSON array of findings. \
 Do not include any prose, explanation, or markdown outside the JSON array. \
 If no issues are found, return an empty array: [].
+
+${localeInstruction}
 
 Each finding must be a JSON object with exactly these fields:
 - id: string (unique identifier for this finding)
@@ -124,10 +133,11 @@ export async function analyze(
   code: string,
   language: SupportedLanguage,
   model: vscode.LanguageModelChat,
+  responseLanguage: UiLanguage = "en",
 ): Promise<AnalysisResult> {
   const startTime = Date.now();
 
-  const messages = buildPrompt(code, language);
+  const messages = buildPrompt(code, language, responseLanguage);
   const cts = new vscode.CancellationTokenSource();
   const response = await model.sendRequest(messages, {}, cts.token);
 
