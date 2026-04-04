@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
@@ -81,7 +82,7 @@ class AnalysisResult(Base):
     mode: Mapped[str] = mapped_column(String(20), nullable=False)
     code_hash: Mapped[str] = mapped_column(Text, nullable=False, index=True)
     findings_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    findings: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    findings: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
     model_used: Mapped[str] = mapped_column(Text, nullable=False)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     demo_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -101,7 +102,7 @@ class AnalyticsEvent(Base):
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True
     )
     event_type: Mapped[str] = mapped_column(Text, nullable=False, index=True)
-    properties: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    properties: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     occurred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow
     )

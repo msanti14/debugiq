@@ -89,7 +89,7 @@ def post_analytics_event(
     body: PostAnalyticsEventRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> PostAnalyticsEventResponse:
     """Record an analytics event for the authenticated user."""
     if not current_user.is_active:
         raise HTTPException(status_code=403, detail="account_inactive")

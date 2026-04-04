@@ -2,6 +2,7 @@ import re
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -48,7 +49,7 @@ app.include_router(analytics_router, prefix="/v0")
 
 # ── Health ────────────────────────────────────────────────────────────────────
 @app.get("/health", tags=["health"])
-def health(db: Session = Depends(get_db)):
+def health(db: Session = Depends(get_db)) -> JSONResponse:
     db_status = "connected"
     try:
         db.execute(text("SELECT 1"))
@@ -56,8 +57,6 @@ def health(db: Session = Depends(get_db)):
         db_status = "error"
 
     status_code = 200 if db_status == "connected" else 503
-    from fastapi.responses import JSONResponse
-
     return JSONResponse(
         status_code=status_code,
         content={
