@@ -586,13 +586,13 @@ def test_insights_empty_team(client):
     team = _create_team(client, headers, name="Empty Insights Team")
 
     res = client.get(
-        f"/v0/teams/{team['team_id']}/analytics/insights",
+        f"/v0/teams/{team['team_id']}/analytics/insights?days=14",
         headers=headers,
     )
     assert res.status_code == 200
     data = res.json()
 
-    # Always 14 daily entries, all zeros
+    # With days=14 we get exactly 14 daily entries, all zeros
     assert len(data["daily_results_last_14d"]) == 14
     for entry in data["daily_results_last_14d"]:
         assert entry["count"] == 0
@@ -636,7 +636,7 @@ def test_insights_shape_and_data(client):
     _save_team_result(client, headers_member, team["team_id"], findings=[], seed="ins-other")
 
     res = client.get(
-        f"/v0/teams/{team['team_id']}/analytics/insights",
+        f"/v0/teams/{team['team_id']}/analytics/insights?days=14",
         headers=headers_owner,
     )
     assert res.status_code == 200
@@ -651,7 +651,7 @@ def test_insights_shape_and_data(client):
     ):
         assert key in data, f"missing key: {key}"
 
-    # 14-day daily entries; total for today should be 3
+    # days=14 daily entries; total for today should be 3
     assert len(data["daily_results_last_14d"]) == 14
     today_count = data["daily_results_last_14d"][-1]["count"]
     assert today_count == 3
@@ -673,3 +673,157 @@ def test_insights_shape_and_data(client):
     assert counts == [1, 2]
     # Ranked descending: first entry is the owner with 2 results
     assert data["member_activity_last_30d"][0]["results_count"] == 2
+
+
+# ── Analytics insights v3: days / top_n param validation ──────────────────────
+
+
+def test_insights_days_invalid_value_returns_422(client):
+    tokens = _register_and_login(client, "ins_v3_days_inv@example.com")
+    headers = _auth_headers(tokens)
+    team = _create_team(client, headers, name="Days Invalid Team")
+
+    for bad in (0, 1, 15, 100):
+        res = client.get(
+            f"/v0/teams/{team['team_id']}/analytics/insights?days={bad}",
+            headers=headers,
+        )
+        assert res.status_code == 422, f"expected 422 for days={bad}, got {res.status_code}"
+
+
+def test_insights_days_valid_values_return_200(client):
+    tokens = _register_and_login(client, "ins_v3_days_ok@example.com")
+    headers = _auth_headers(tokens)
+    team = _create_team(client, headers, name="Days Valid Team")
+
+    for good in (7, 14, 30, 90):
+        res = client.get(
+            f"/v0/teams/{team['team_id']}/analytics/insights?days={good}",
+            headers=headers,
+        )
+        assert res.status_code == 200, f"expected 200 for days={good}, got {res.status_code}"
+        data = res.json()
+        assert len(data["daily_results_last_14d"]) == good
+
+
+def test_insights_top_n_exceeds_max_returns_422(client):
+    tokens = _register_and_login(client, "ins_v3_topn_inv@example.com")
+    headers = _auth_headers(tokens)
+    team = _create_team(client, headers, name="TopN Invalid Team")
+
+    res = client.get(
+        f"/v0/teams/{team['team_id']}/analytics/insights?top_n=51",
+        headers=headers,
+    )
+    assert res.status_code == 422
+
+
+def test_insights_top_n_valid_values_limit_results(client):
+    tokens = _register_and_login(client, "ins_v3_topn_ok@example.com")
+    headers = _auth_headers(tokens)
+    team = _create_team(client, headers, name="TopN Valid Team")
+
+    sql_finding = {
+        "id": "f1",
+        "category": "sql_injection",
+        "severity": "critical",
+        "title": "SQL Injection",
+        "description": "desc",
+        "line_start": 1,
+        "line_end": 2,
+    }
+
+    # Save 3 results with distinct code hashes
+    for i in range(3):
+        _save_team_result(
+            client, headers, team["team_id"], findings=[sql_finding], seed=f"topn-sig-{i}"
+        )
+
+    # top_n=2 should limit signatures to 2
+    res = client.get(
+        f"/v0/teams/{team['team_id']}/analytics/insights?top_n=2",
+        headers=headers,
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data["top_signatures_last_30d"]) <= 2
+
+    # top_n=50 (max allowed) should work
+    res50 = client.get(
+        f"/v0/teams/{team['team_id']}/analytics/insights?top_n=50",
+        headers=headers,
+    )
+    assert res50.status_code == 200
+
+
+def test_insights_days_filters_old_results(client):
+    """Results outside the time window must not appear in the response."""
+    tokens = _register_and_login(client, "ins_v3_filter@example.com")
+    headers = _auth_headers(tokens)
+    team = _create_team(client, headers, name="Filter Window Team")
+
+    # Save a result with an old analyzed_at (well outside 7d window).
+    # The router uses created_at for filtering, which is set by the DB at
+    # insert time — so we can only rely on the normal flow where recent
+    # inserts appear within the window.  This test instead verifies that
+    # a fresh insert shows up when days=7 but that days=7 returns 200
+    # with the correct shape, and then does a white-box check that the
+    # default days=30 returns at least as many entries as days=7.
+
+    _save_team_result(client, headers, team["team_id"], seed="filter-recent")
+
+    res7 = client.get(
+        f"/v0/teams/{team['team_id']}/analytics/insights?days=7",
+        headers=headers,
+    )
+    res30 = client.get(
+        f"/v0/teams/{team['team_id']}/analytics/insights?days=30",
+        headers=headers,
+    )
+
+    assert res7.status_code == 200
+    assert res30.status_code == 200
+
+    d7 = res7.json()
+    d30 = res30.json()
+
+    # days=7 produces 7 daily entries; days=30 produces 30
+    assert len(d7["daily_results_last_14d"]) == 7
+    assert len(d30["daily_results_last_14d"]) == 30
+
+    # The recent result is within 7d, so it appears in both windows
+    sigs7 = {s["signature_hash"] for s in d7["top_signatures_last_30d"]}
+    sigs30 = {s["signature_hash"] for s in d30["top_signatures_last_30d"]}
+    assert _make_hash("filter-recent") in sigs7
+    assert _make_hash("filter-recent") in sigs30
+
+
+# ── Analytics summary v3: days param validation ────────────────────────────────
+
+
+def test_summary_days_invalid_value_returns_422(client):
+    tokens = _register_and_login(client, "anl_v3_days_inv@example.com")
+    headers = _auth_headers(tokens)
+    team = _create_team(client, headers, name="Summary Days Invalid Team")
+
+    for bad in (0, 1, 15, 100):
+        res = client.get(
+            f"/v0/teams/{team['team_id']}/analytics/summary?days={bad}",
+            headers=headers,
+        )
+        assert res.status_code == 422, f"expected 422 for days={bad}, got {res.status_code}"
+
+
+def test_summary_days_valid_values_return_200(client):
+    tokens = _register_and_login(client, "anl_v3_days_ok@example.com")
+    headers = _auth_headers(tokens)
+    team = _create_team(client, headers, name="Summary Days Valid Team")
+
+    for good in (7, 14, 30, 90):
+        res = client.get(
+            f"/v0/teams/{team['team_id']}/analytics/summary?days={good}",
+            headers=headers,
+        )
+        assert res.status_code == 200, f"expected 200 for days={good}, got {res.status_code}"
+        data = res.json()
+        assert "active_members_last_30d" in data

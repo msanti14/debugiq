@@ -2,7 +2,17 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -94,6 +104,13 @@ class TeamMember(Base):
 
 class AnalysisResult(Base):
     __tablename__ = "analysis_results"
+    __table_args__ = (
+        Index("ix_analysis_results_team_id_created_at", "team_id", "created_at"),
+        Index("ix_analysis_results_team_id_user_id_created_at", "team_id", "user_id", "created_at"),
+        Index(
+            "ix_analysis_results_team_id_code_hash_created_at", "team_id", "code_hash", "created_at"
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(

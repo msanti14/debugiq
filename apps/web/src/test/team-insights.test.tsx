@@ -117,7 +117,7 @@ describe("TeamInsightsPanel — empty state", () => {
       render(<TeamInsightsPanel teamId="team-abc" />);
     });
 
-    expect(screen.getByText("No activity in the last 14 days.")).toBeTruthy();
+    expect(screen.getByText("No activity in the last 30 days.")).toBeTruthy();
     expect(screen.getByText("No findings recorded yet.")).toBeTruthy();
     expect(screen.getByText("No signatures recorded yet.")).toBeTruthy();
     expect(screen.getByText("No member activity in the last 30 days.")).toBeTruthy();
