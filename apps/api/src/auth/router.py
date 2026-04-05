@@ -1,4 +1,5 @@
 import hashlib
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import jwt
@@ -70,7 +71,7 @@ def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def _build_token_response(user_id, db: Session) -> TokenResponse:
+def _build_token_response(user_id: uuid.UUID, db: Session) -> TokenResponse:
     access = create_access_token(user_id)
     refresh = create_refresh_token(user_id)
 
@@ -95,7 +96,7 @@ def _build_token_response(user_id, db: Session) -> TokenResponse:
 
 
 @router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
-def register(body: RegisterRequest, db: Session = Depends(get_db)):
+def register(body: RegisterRequest, db: Session = Depends(get_db)) -> RegisterResponse:
     if db.query(User).filter(User.email == body.email).first():
         raise HTTPException(status_code=409, detail="email_already_registered")
 
@@ -111,7 +112,7 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(body: LoginRequest, db: Session = Depends(get_db)):
+def login(body: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
     user = db.query(User).filter(User.email == body.email).first()
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="invalid_credentials")
@@ -121,7 +122,7 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/refresh", response_model=TokenResponse)
-def refresh(body: RefreshRequest, db: Session = Depends(get_db)):
+def refresh(body: RefreshRequest, db: Session = Depends(get_db)) -> TokenResponse:
     try:
         payload = decode_token(body.refresh_token)
     except jwt.InvalidTokenError:
@@ -155,7 +156,7 @@ def logout(
     body: LogoutRequest,
     db: Session = Depends(get_db),
     _current_user: User = Depends(get_current_user),
-):
+) -> None:
     token_hash = _hash_token(body.refresh_token)
     stored = db.query(RefreshToken).filter(RefreshToken.token_hash == token_hash).first()
     if stored and stored.revoked_at is None:

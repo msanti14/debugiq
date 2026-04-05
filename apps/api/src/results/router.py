@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 from typing import Literal
 
@@ -92,7 +93,7 @@ def save_result(
     body: SaveResultRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> SaveResultResponse:
     result = AnalysisResult(
         user_id=current_user.id,
         language=body.language,
@@ -116,10 +117,14 @@ def get_result(
     result_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> ResultResponse:
+    try:
+        rid = uuid.UUID(result_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="result_not_found")
     result = (
         db.query(AnalysisResult)
-        .filter(AnalysisResult.id == result_id, AnalysisResult.user_id == current_user.id)
+        .filter(AnalysisResult.id == rid, AnalysisResult.user_id == current_user.id)
         .first()
     )
     if not result:
@@ -135,7 +140,7 @@ def list_results(
     mode: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> PaginatedResults:
     query = db.query(AnalysisResult).filter(AnalysisResult.user_id == current_user.id)
     if language:
         query = query.filter(AnalysisResult.language == language)

@@ -10,6 +10,12 @@ import { ModelRouter } from "./analyzer/ModelRouter";
 import { SidebarProvider } from "./providers/SidebarProvider";
 import { analyze } from "./analyzer/QuickAnalyzer";
 import { analyzeLearn } from "./analyzer/LearnAnalyzer";
+import { analyzeWithOllama } from "./analyzer/OllamaAnalyzer";
+import {
+  runAiDiagnostics,
+  formatDiagnosticsReport,
+  type AiProviderSetting,
+} from "./analyzer/AiDiagnostics";
 import { normalizeFindingsForSignature, computeBugSignature } from "./analyzer/BugSignature";
 import { SignatureStore } from "./signatures/SignatureStore";
 import { buildHookScript } from "./signatures/HookInstaller";
@@ -33,6 +39,16 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.getConfiguration("debugiq").get<"auto" | UiLanguage>("outputLanguage") ?? "auto";
   const uiLanguage = resolveUiLanguage(configuredOutputLanguage, vscode.env.language);
   const t = (en: string, es: string): string => (uiLanguage === "es" ? es : en);
+
+  // ── Diagnostics output channel (lazy — created on first use) ────────────────
+  let diagnosticsChannel: vscode.OutputChannel | undefined;
+  function getDiagnosticsChannel(): vscode.OutputChannel {
+    if (!diagnosticsChannel) {
+      diagnosticsChannel = vscode.window.createOutputChannel("DebugIQ Diagnostics");
+      context.subscriptions.push(diagnosticsChannel);
+    }
+    return diagnosticsChannel;
+  }
 
   // ── First-run onboarding ─────────────────────────────────────────────────────
   const firstRunKey = "debugiq.firstRunShown";
@@ -68,6 +84,14 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.getConfiguration("debugiq").get<"strict" | "balanced">("signature.sensitivity") ?? "balanced";
   const hookWarnOn =
     vscode.workspace.getConfiguration("debugiq").get<"new-signature" | "new-or-critical">("hook.warnOn") ?? "new-signature";
+  const aiProvider =
+    vscode.workspace.getConfiguration("debugiq").get<"auto" | "copilot" | "ollama">("aiProvider") ?? "auto";
+  const ollamaBaseUrl =
+    vscode.workspace.getConfiguration("debugiq").get<string>("ollama.baseUrl") ?? "http://localhost:11434";
+  const ollamaQuickModel =
+    vscode.workspace.getConfiguration("debugiq").get<string>("ollama.modelQuick") ?? "llama3.2:3b";
+  const ollamaLearnModel =
+    vscode.workspace.getConfiguration("debugiq").get<string>("ollama.modelLearn") ?? "llama3.2:3b";
 
   const keychain = new KeychainService(context);
   const client = new BackendClient(configuredUrl);
@@ -89,6 +113,47 @@ export function activate(context: vscode.ExtensionContext): void {
       const language = mapToSupportedLanguage(languageId);
       const result = demo.getFixture(language, "quick");
       sidebar.show(result, undefined, undefined, uiLanguage);
+    }),
+  );
+
+  // Diagnose AI Provider — probes all selectors and writes a full report to
+  // the "DebugIQ Diagnostics" Output Channel.  Gives the user the exact
+  // failure category and a targeted next action rather than a generic message.
+  context.subscriptions.push(
+    vscode.commands.registerCommand("debugiq.diagnoseAiProvider", async () => {
+      const provider =
+        vscode.workspace.getConfiguration("debugiq").get<AiProviderSetting>("aiProvider") ?? "auto";
+
+      const report = await runAiDiagnostics(
+        provider,
+        vscode.version,
+        vscode.lm,
+        vscode.extensions,
+      );
+      const text = formatDiagnosticsReport(report);
+
+      const ch = getDiagnosticsChannel();
+      ch.clear();
+      ch.appendLine(text);
+      ch.show(true); // reveal panel without stealing keyboard focus
+
+      const summary =
+        report.failureCategory === "OK"
+          ? t(
+              `DebugIQ: Model found — "${report.selectedModel?.name ?? "unknown"}". See Output > DebugIQ Diagnostics for details.`,
+              `DebugIQ: Modelo encontrado — "${report.selectedModel?.name ?? "unknown"}". Consulta Output > DebugIQ Diagnostics.`,
+            )
+          : t(
+              `DebugIQ: No usable model (${report.failureCategory}). See Output > DebugIQ Diagnostics for the full report.`,
+              `DebugIQ: Sin modelo utilizable (${report.failureCategory}). Ver Output > DebugIQ Diagnostics para el reporte completo.`,
+            );
+
+      const showAction = t("Show Report", "Ver Reporte");
+      vscode.window.showInformationMessage(summary, showAction).then((choice) => {
+        if (choice) {
+          getDiagnosticsChannel().show(true);
+        }
+      });
     }),
   );
 
@@ -116,17 +181,10 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
       const language = mapToSupportedLanguage(editor.document.languageId);
-      const model = await selectCopilotModel(modelRouter, "quick", language);
-      if (!model) {
-        vscode.window.showInformationMessage(
-          t(
-            "DebugIQ: GitHub Copilot is not available — install or sign in to Copilot to use AI analysis. Showing demo result.",
-            "DebugIQ: GitHub Copilot no esta disponible. Instala o inicia sesion en Copilot para usar analisis con IA. Mostrando resultado demo.",
-          ),
-        );
-        sidebar.show(demo.getFixture(language, "quick"), undefined, undefined, uiLanguage);
-        return;
-      }
+      const { model, noModelReason } =
+        aiProvider === "ollama"
+          ? { model: undefined as vscode.LanguageModelChat | undefined, noModelReason: "" }
+          : await selectCopilotModel(modelRouter, "quick", language);
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
@@ -135,22 +193,60 @@ export function activate(context: vscode.ExtensionContext): void {
         },
         async () => {
           try {
-            const result = await analyze(selectedCode, language, model, uiLanguage);
+            const result = model
+              ? await analyze(selectedCode, language, model, uiLanguage)
+              : await analyzeWithOllama(
+                  selectedCode,
+                  language,
+                  "quick",
+                  { baseUrl: ollamaBaseUrl, model: ollamaQuickModel },
+                  uiLanguage,
+                );
             const { signatureInfo, suggestions } = computeAndStoreSignature(result, signatureStore, sigEnabled, sigSensitivity, hookWarnOn, uiLanguage);
             sidebar.show(result, signatureInfo, suggestions, uiLanguage);
             autoSave(result, auth, client);
             fireAnalyticsEvent(result, signatureInfo, auth, client);
           } catch (e) {
+            const canFallbackToOllama = aiProvider === "auto" && !model;
+            if (canFallbackToOllama) {
+              try {
+                const result = await analyzeWithOllama(
+                  selectedCode,
+                  language,
+                  "quick",
+                  { baseUrl: ollamaBaseUrl, model: ollamaQuickModel },
+                  uiLanguage,
+                );
+                const { signatureInfo, suggestions } = computeAndStoreSignature(result, signatureStore, sigEnabled, sigSensitivity, hookWarnOn, uiLanguage);
+                sidebar.show(result, signatureInfo, suggestions, uiLanguage);
+                autoSave(result, auth, client);
+                fireAnalyticsEvent(result, signatureInfo, auth, client);
+                vscode.window.showInformationMessage(
+                  t(
+                    "DebugIQ: Copilot models unavailable. Using local Ollama fallback.",
+                    "DebugIQ: Modelos de Copilot no disponibles. Usando fallback local con Ollama.",
+                  ),
+                );
+                return;
+              } catch {
+                // fall through to standard demo fallback below
+              }
+            }
+
             if (e instanceof vscode.LanguageModelError) {
-              vscode.window.showErrorMessage(t("DebugIQ: Copilot error - ", "DebugIQ: Error de Copilot - ") + e.message);
-            } else {
               vscode.window.showErrorMessage(
-                t(
-                  "DebugIQ: Analysis failed unexpectedly. Please try again.",
-                  "DebugIQ: El analisis fallo de forma inesperada. Intenta de nuevo.",
-                ),
+                t("DebugIQ: Copilot model error — ", "DebugIQ: Error del modelo Copilot — ") + e.message,
               );
             }
+
+            const fallbackMsg = buildFallbackMessage(noModelReason, e, uiLanguage);
+            const diagAction = t("Run Diagnostics", "Ejecutar Diagnostico");
+            vscode.window.showInformationMessage(fallbackMsg, diagAction).then((choice) => {
+              if (choice) {
+                vscode.commands.executeCommand("debugiq.diagnoseAiProvider");
+              }
+            });
+            sidebar.show(demo.getFixture(language, "quick"), undefined, undefined, uiLanguage);
           }
         },
       );
@@ -181,17 +277,10 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
       const language = mapToSupportedLanguage(editor.document.languageId);
-      const model = await selectCopilotModel(modelRouter, "learn", language);
-      if (!model) {
-        vscode.window.showInformationMessage(
-          t(
-            "DebugIQ: GitHub Copilot is not available — install or sign in to Copilot to use AI analysis. Showing demo result.",
-            "DebugIQ: GitHub Copilot no esta disponible. Instala o inicia sesion en Copilot para usar analisis con IA. Mostrando resultado demo.",
-          ),
-        );
-        sidebar.show(demo.getFixture(language, "learn"), undefined, undefined, uiLanguage);
-        return;
-      }
+      const { model, noModelReason } =
+        aiProvider === "ollama"
+          ? { model: undefined as vscode.LanguageModelChat | undefined, noModelReason: "" }
+          : await selectCopilotModel(modelRouter, "learn", language);
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
@@ -200,22 +289,60 @@ export function activate(context: vscode.ExtensionContext): void {
         },
         async () => {
           try {
-            const result = await analyzeLearn(selectedCode, language, model, uiLanguage);
+            const result = model
+              ? await analyzeLearn(selectedCode, language, model, uiLanguage)
+              : await analyzeWithOllama(
+                  selectedCode,
+                  language,
+                  "learn",
+                  { baseUrl: ollamaBaseUrl, model: ollamaLearnModel },
+                  uiLanguage,
+                );
             const { signatureInfo, suggestions } = computeAndStoreSignature(result, signatureStore, sigEnabled, sigSensitivity, hookWarnOn, uiLanguage);
             sidebar.show(result, signatureInfo, suggestions, uiLanguage);
             autoSave(result, auth, client);
             fireAnalyticsEvent(result, signatureInfo, auth, client);
           } catch (e) {
+            const canFallbackToOllama = aiProvider === "auto" && !model;
+            if (canFallbackToOllama) {
+              try {
+                const result = await analyzeWithOllama(
+                  selectedCode,
+                  language,
+                  "learn",
+                  { baseUrl: ollamaBaseUrl, model: ollamaLearnModel },
+                  uiLanguage,
+                );
+                const { signatureInfo, suggestions } = computeAndStoreSignature(result, signatureStore, sigEnabled, sigSensitivity, hookWarnOn, uiLanguage);
+                sidebar.show(result, signatureInfo, suggestions, uiLanguage);
+                autoSave(result, auth, client);
+                fireAnalyticsEvent(result, signatureInfo, auth, client);
+                vscode.window.showInformationMessage(
+                  t(
+                    "DebugIQ: Copilot models unavailable. Using local Ollama fallback.",
+                    "DebugIQ: Modelos de Copilot no disponibles. Usando fallback local con Ollama.",
+                  ),
+                );
+                return;
+              } catch {
+                // fall through to standard demo fallback below
+              }
+            }
+
             if (e instanceof vscode.LanguageModelError) {
-              vscode.window.showErrorMessage(t("DebugIQ: Copilot error - ", "DebugIQ: Error de Copilot - ") + e.message);
-            } else {
               vscode.window.showErrorMessage(
-                t(
-                  "DebugIQ: Analysis failed unexpectedly. Please try again.",
-                  "DebugIQ: El analisis fallo de forma inesperada. Intenta de nuevo.",
-                ),
+                t("DebugIQ: Copilot model error — ", "DebugIQ: Error del modelo Copilot — ") + e.message,
               );
             }
+
+            const fallbackMsg = buildFallbackMessage(noModelReason, e, uiLanguage);
+            const diagAction = t("Run Diagnostics", "Ejecutar Diagnostico");
+            vscode.window.showInformationMessage(fallbackMsg, diagAction).then((choice) => {
+              if (choice) {
+                vscode.commands.executeCommand("debugiq.diagnoseAiProvider");
+              }
+            });
+            sidebar.show(demo.getFixture(language, "learn"), undefined, undefined, uiLanguage);
           }
         },
       );
@@ -524,32 +651,117 @@ function fireAnalyticsEvent(
   }).catch(() => {});
 }
 
+/**
+ * Tries all known Copilot model selectors in priority order and returns the
+ * first usable model.  Returns `noModelReason` describing WHY selection failed
+ * (empty string when a model is found) so the caller can show a precise
+ * fallback message instead of a generic "install Copilot" prompt.
+ *
+ * Selection strategy (in order):
+ *   1. Mode-specific families from ModelRouter.getSelectorsForMode()
+ *      (covers all known GPT / Claude family name variants)
+ *   2. Any model from the "copilot" vendor
+ *      (catches renamed/new families — picks the best match by name heuristic)
+ *   3. Any model from any vendor
+ *      (last resort — handles hypothetical future providers)
+ */
 async function selectCopilotModel(
   modelRouter: ModelRouter,
   mode: "quick" | "learn",
-  language: SupportedLanguage,
-): Promise<vscode.LanguageModelChat | undefined> {
-  const strictMatches = await vscode.lm.selectChatModels(
-    modelRouter.toLmSelector(mode, language),
+  _language: SupportedLanguage,
+): Promise<{ model: vscode.LanguageModelChat | undefined; noModelReason: string }> {
+  // ── 1. Try mode-specific selectors ──────────────────────────────────────────
+  for (const selector of modelRouter.getSelectorsForMode(mode)) {
+    try {
+      const matches = await vscode.lm.selectChatModels(selector);
+      if (matches.length > 0) {
+        return { model: matches[0], noModelReason: "" };
+      }
+    } catch {
+      // Selector threw — skip to next
+    }
+  }
+
+  // ── 2. Any Copilot model ─────────────────────────────────────────────────────
+  try {
+    const anyCopilot = await vscode.lm.selectChatModels({ vendor: "copilot" });
+    if (anyCopilot.length > 0) {
+      const preferred = anyCopilot.find((m) => {
+        const text = `${m.id ?? ""} ${m.name ?? ""}`.toLowerCase();
+        return mode === "learn"
+          ? text.includes("claude") || text.includes("sonnet") || text.includes("gemini")
+          : text.includes("gpt") || text.includes("o1") || text.includes("o3") || text.includes("o4");
+      });
+      return { model: preferred ?? anyCopilot[0], noModelReason: "" };
+    }
+  } catch {
+    // ignore
+  }
+
+  // ── 3. Any model from any vendor ─────────────────────────────────────────────
+  try {
+    const anyModel = await vscode.lm.selectChatModels();
+    if (anyModel.length > 0) {
+      return { model: anyModel[0], noModelReason: "" };
+    }
+  } catch {
+    // ignore
+  }
+
+  // ── No model found: build a diagnostic reason string ────────────────────────
+  const hasCopilotChat =
+    vscode.extensions.getExtension("github.copilot-chat") !== undefined;
+  const hasCopilot =
+    vscode.extensions.getExtension("github.copilot") !== undefined;
+
+  let noModelReason: string;
+  if (!hasCopilot && !hasCopilotChat) {
+    noModelReason = "NO_MODELS_REGISTERED: GitHub Copilot Chat not detected.";
+  } else if (!hasCopilot && hasCopilotChat) {
+    noModelReason =
+      "NO_MODELS_REGISTERED: github.copilot-chat is installed but no models are registered yet. " +
+      "Open the Copilot Chat panel (Ctrl+Alt+I) to initialize it.";
+  } else {
+    noModelReason =
+      "NO_COPILOT_MODELS: Copilot extensions detected but selectChatModels() returned no models. " +
+      "Open the Copilot Chat panel and verify your sign-in and subscription.";
+  }
+
+  return { model: undefined, noModelReason };
+}
+
+/**
+ * Builds a precise, categorised fallback message for the user.
+ *
+ * When `noModelReason` is non-empty the model was never found (pre-analysis
+ * failure).  When it is empty the model was found but analysis threw `err`
+ * (mid-analysis failure).
+ */
+function buildFallbackMessage(
+  noModelReason: string,
+  err: unknown,
+  lang: UiLanguage,
+): string {
+  const t = (en: string, es: string): string => (lang === "es" ? es : en);
+
+  if (noModelReason) {
+    // Model selection failed — include the category prefix in the message
+    const category = noModelReason.split(":")[0];
+    return t(
+      `DebugIQ [${category}]: No AI model available. Showing demo result. Run 'DebugIQ: Diagnose AI Provider' for details.`,
+      `DebugIQ [${category}]: Sin modelo de IA disponible. Mostrando resultado demo. Ejecuta 'DebugIQ: Diagnose AI Provider' para mas detalles.`,
+    );
+  }
+
+  if (err instanceof vscode.LanguageModelError) {
+    return t(
+      `DebugIQ [LM_API_ERROR]: Copilot returned an error during analysis. Showing demo result. Run 'DebugIQ: Diagnose AI Provider' for details.`,
+      `DebugIQ [LM_API_ERROR]: Copilot devolvio un error durante el analisis. Mostrando resultado demo. Ejecuta 'DebugIQ: Diagnose AI Provider'.`,
+    );
+  }
+
+  return t(
+    "DebugIQ: Analysis failed. Showing demo result. Run 'DebugIQ: Diagnose AI Provider' to check your AI provider.",
+    "DebugIQ: Analisis fallido. Mostrando resultado demo. Ejecuta 'DebugIQ: Diagnose AI Provider' para verificar tu proveedor de IA.",
   );
-  if (strictMatches.length > 0) {
-    return strictMatches[0];
-  }
-
-  // Fallback: some accounts expose Copilot model families with different IDs.
-  const anyCopilot = await vscode.lm.selectChatModels({ vendor: "copilot" });
-  if (anyCopilot.length === 0) {
-    return undefined;
-  }
-
-  const preferred = anyCopilot.find((m) => {
-    const id = (m.id ?? "").toLowerCase();
-    const name = (m.name ?? "").toLowerCase();
-    const text = `${id} ${name}`;
-    return mode === "learn"
-      ? text.includes("claude") || text.includes("sonnet")
-      : text.includes("gpt") || text.includes("o1") || text.includes("o3");
-  });
-
-  return preferred ?? anyCopilot[0];
 }

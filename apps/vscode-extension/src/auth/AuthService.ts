@@ -1,7 +1,7 @@
 import type { KeychainService } from "../keychain/KeychainService";
 import { KEYCHAIN_KEYS } from "../keychain/KeychainService";
 import type { BackendClient } from "../api/BackendClient";
-import type { TokenResponse, UserResponse } from "@debugiq/shared-types";
+import type { TokenResponse } from "@debugiq/shared-types";
 
 export class AuthService {
   constructor(

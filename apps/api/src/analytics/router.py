@@ -9,7 +9,7 @@ arbitrary data from reaching the database.
 
 import re
 from datetime import UTC, datetime
-from typing import Literal, Optional
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -46,16 +46,16 @@ class AnalyticsProperties(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    signature_hash: Optional[str] = None
-    status: Optional[Literal["new", "repeated"]] = None
-    severity_summary: Optional[Literal["critical", "high", "medium", "low", "info", "none"]] = None
-    mode: Optional[Literal["quick", "learn"]] = None
-    language: Optional[Literal["python", "typescript"]] = None
-    repo_key_hash: Optional[str] = None
+    signature_hash: str | None = None
+    status: Literal["new", "repeated"] | None = None
+    severity_summary: Literal["critical", "high", "medium", "low", "info", "none"] | None = None
+    mode: Literal["quick", "learn"] | None = None
+    language: Literal["python", "typescript"] | None = None
+    repo_key_hash: str | None = None
 
     @field_validator("signature_hash", "repo_key_hash")
     @classmethod
-    def must_be_sha256_hex(cls, v: Optional[str]) -> Optional[str]:
+    def must_be_sha256_hex(cls, v: str | None) -> str | None:
         if v is not None and not _SHA256_RE.match(v):
             raise ValueError("must be a lowercase 64-character SHA-256 hex string")
         return v
@@ -89,7 +89,7 @@ def post_analytics_event(
     body: PostAnalyticsEventRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> PostAnalyticsEventResponse:
     """Record an analytics event for the authenticated user."""
     if not current_user.is_active:
         raise HTTPException(status_code=403, detail="account_inactive")

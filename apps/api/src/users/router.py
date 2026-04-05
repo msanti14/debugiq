@@ -24,7 +24,7 @@ class PatchUserRequest(BaseModel):
 
 
 @router.get("/me", response_model=UserResponse)
-def get_me(current_user: User = Depends(get_current_user)):
+def get_me(current_user: User = Depends(get_current_user)) -> UserResponse:
     return UserResponse(
         user_id=str(current_user.id),
         email=current_user.email,
@@ -39,7 +39,7 @@ def patch_me(
     body: PatchUserRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> UserResponse:
     if body.display_name is not None:
         current_user.display_name = body.display_name
         current_user.updated_at = datetime.now(UTC)
