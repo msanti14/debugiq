@@ -104,3 +104,28 @@ export interface PostAnalyticsEventRequest {
 export interface PostAnalyticsEventResponse {
   event_id: string;
 }
+
+// ── Teams API Shapes ──────────────────────────────────────────────────────────
+
+export interface TeamResponse {
+  team_id: string;
+  name: string;
+  owner_id: string;
+  tier: string;
+  created_at: string;
+}
+
+export interface CreateTeamRequest {
+  name: string;
+}
+
+export interface TeamMemberResponse {
+  user_id: string;
+  email: string;
+  role: string;
+}
+
+export interface AddMemberRequest {
+  email: string;
+  role: "admin" | "member";
+}
