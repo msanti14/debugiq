@@ -107,7 +107,7 @@ export function TeamInsightsPanel({ teamId }: Props) {
       </InsightSection>
 
       {/* Top bug categories + top signatures */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <InsightSection title="Top bug categories (30d)">
           {data.top_bug_categories_last_30d.length === 0 ? (
             <EmptyNote message="No findings recorded yet." />
