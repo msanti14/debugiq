@@ -3,7 +3,7 @@
  * Teams endpoint wrappers.
  */
 
-import type { TeamResponse, CreateTeamRequest, TeamMemberResponse, AddMemberRequest } from "@debugiq/shared-types";
+import type { TeamResponse, CreateTeamRequest, TeamMemberResponse, AddMemberRequest, TeamAnalyticsSummary } from "@debugiq/shared-types";
 import { apiFetch } from "./client";
 
 export function listTeams(): Promise<TeamResponse[]> {
@@ -32,4 +32,8 @@ export function addTeamMember(teamId: string, body: AddMemberRequest): Promise<T
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+export function getTeamAnalyticsSummary(teamId: string): Promise<TeamAnalyticsSummary> {
+  return apiFetch<TeamAnalyticsSummary>(`/v0/teams/${teamId}/analytics/summary`);
 }

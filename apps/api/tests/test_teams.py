@@ -389,3 +389,167 @@ def test_get_result_team_member_can_access(client):
     get_res = client.get(f"/v0/results/{result_id}", headers=_auth_headers(tok_member))
     assert get_res.status_code == 200
     assert get_res.json()["result_id"] == result_id
+
+
+# ── Team analytics summary ─────────────────────────────────────────────────────
+
+
+def _save_team_result(
+    client,
+    headers: dict,
+    team_id: str,
+    language: str = "python",
+    mode: str = "quick",
+    findings: list | None = None,
+    seed: str = "default",
+) -> dict:
+    if findings is None:
+        findings = []
+    res = client.post(
+        "/v0/results",
+        json={
+            "language": language,
+            "mode": mode,
+            "code_hash": _make_hash(seed),
+            "findings": findings,
+            "model_used": "gpt-4o",
+            "demo_mode": False,
+            "analyzed_at": "2026-04-01T12:00:00Z",
+            "team_id": team_id,
+        },
+        headers=headers,
+    )
+    assert res.status_code == 201, res.text
+    return res.json()
+
+
+def test_analytics_summary_non_member_returns_403(client):
+    tok_owner = _register_and_login(client, "anl_owner@example.com")
+    tok_other = _register_and_login(client, "anl_outsider@example.com")
+    team = _create_team(client, _auth_headers(tok_owner))
+
+    res = client.get(
+        f"/v0/teams/{team['team_id']}/analytics/summary",
+        headers=_auth_headers(tok_other),
+    )
+    assert res.status_code == 403
+    assert res.json()["detail"] == "not_a_member"
+
+
+def test_analytics_summary_invalid_team_id_returns_404(client):
+    tokens = _register_and_login(client, "anl_invalid@example.com")
+    res = client.get(
+        "/v0/teams/not-a-uuid/analytics/summary",
+        headers=_auth_headers(tokens),
+    )
+    assert res.status_code == 404
+
+
+def test_analytics_summary_empty_team(client):
+    tokens = _register_and_login(client, "anl_empty@example.com")
+    headers = _auth_headers(tokens)
+    team = _create_team(client, headers, name="Empty Analytics Team")
+
+    res = client.get(
+        f"/v0/teams/{team['team_id']}/analytics/summary",
+        headers=headers,
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total_results"] == 0
+    assert data["results_last_7d"] == 0
+    assert data["results_last_30d"] == 0
+    assert data["active_members_last_30d"] == 0
+    # severity/mode/language counts all zero
+    for v in data["severity_counts"].values():
+        assert v == 0
+    for v in data["mode_counts"].values():
+        assert v == 0
+    for v in data["language_counts"].values():
+        assert v == 0
+
+
+def test_analytics_summary_shape_and_counts(client):
+    tok_owner = _register_and_login(client, "anl_shape_owner@example.com")
+    tok_member = _register_and_login(client, "anl_shape_member@example.com")
+    headers_owner = _auth_headers(tok_owner)
+    headers_member = _auth_headers(tok_member)
+
+    team = _create_team(client, headers_owner, name="Shape Analytics Team")
+    # Add a second member
+    client.post(
+        f"/v0/teams/{team['team_id']}/members",
+        json={"email": "anl_shape_member@example.com", "role": "member"},
+        headers=headers_owner,
+    )
+
+    critical_finding = {
+        "id": "f1",
+        "category": "sql_injection",
+        "severity": "critical",
+        "title": "SQL Injection",
+        "description": "desc",
+        "line_start": 1,
+        "line_end": 2,
+    }
+
+    # Owner saves a Python/quick result with 1 critical finding
+    _save_team_result(
+        client,
+        headers_owner,
+        team["team_id"],
+        language="python",
+        mode="quick",
+        findings=[critical_finding],
+        seed="shape-py-1",
+    )
+
+    # Member saves a TypeScript/learn result with no findings
+    _save_team_result(
+        client,
+        headers_member,
+        team["team_id"],
+        language="typescript",
+        mode="learn",
+        findings=[],
+        seed="shape-ts-1",
+    )
+
+    res = client.get(
+        f"/v0/teams/{team['team_id']}/analytics/summary",
+        headers=headers_owner,
+    )
+    assert res.status_code == 200
+    data = res.json()
+
+    # Required keys present
+    for key in (
+        "total_results",
+        "results_last_7d",
+        "results_last_30d",
+        "severity_counts",
+        "mode_counts",
+        "language_counts",
+        "active_members_last_30d",
+    ):
+        assert key in data, f"missing key: {key}"
+
+    assert data["total_results"] == 2
+    # Both results were just created — should appear in 7d and 30d windows
+    assert data["results_last_7d"] == 2
+    assert data["results_last_30d"] == 2
+
+    # Severity: 1 critical from the first result
+    assert data["severity_counts"]["critical"] == 1
+    assert data["severity_counts"]["high"] == 0
+
+    # Mode breakdown
+    assert data["mode_counts"]["quick"] == 1
+    assert data["mode_counts"]["learn"] == 1
+
+    # Language breakdown
+    assert data["language_counts"]["python"] == 1
+    assert data["language_counts"]["typescript"] == 1
+
+    # Two distinct users contributed
+    assert data["active_members_last_30d"] == 2
