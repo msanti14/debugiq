@@ -11,6 +11,7 @@ from src.auth.router import router as auth_router
 from src.core.config import settings
 from src.db.session import get_db
 from src.results.router import router as results_router
+from src.teams.router import router as teams_router
 from src.users.router import router as users_router
 
 app = FastAPI(
@@ -45,6 +46,7 @@ app.include_router(auth_router, prefix="/v0")
 app.include_router(users_router, prefix="/v0")
 app.include_router(results_router, prefix="/v0")
 app.include_router(analytics_router, prefix="/v0")
+app.include_router(teams_router, prefix="/v0")
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
