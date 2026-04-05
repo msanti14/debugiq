@@ -49,6 +49,15 @@ vi.mock("@/lib/auth/context", () => ({
   }),
 }));
 
+vi.mock("@/lib/workspace/context", () => ({
+  useWorkspace: () => ({
+    scope: "personal" as const,
+    teams: [],
+    teamsLoading: false,
+    setScope: vi.fn(),
+  }),
+}));
+
 // ── Imports ────────────────────────────────────────────────────────────────────
 
 import { Sidebar } from "@/components/layout/Sidebar";
