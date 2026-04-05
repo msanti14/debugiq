@@ -553,3 +553,123 @@ def test_analytics_summary_shape_and_counts(client):
 
     # Two distinct users contributed
     assert data["active_members_last_30d"] == 2
+
+
+# ── Team analytics insights ────────────────────────────────────────────────────
+
+
+def test_insights_non_member_returns_403(client):
+    tok_owner = _register_and_login(client, "ins_owner@example.com")
+    tok_other = _register_and_login(client, "ins_outsider@example.com")
+    team = _create_team(client, _auth_headers(tok_owner))
+
+    res = client.get(
+        f"/v0/teams/{team['team_id']}/analytics/insights",
+        headers=_auth_headers(tok_other),
+    )
+    assert res.status_code == 403
+    assert res.json()["detail"] == "not_a_member"
+
+
+def test_insights_invalid_team_returns_404(client):
+    tokens = _register_and_login(client, "ins_invalid@example.com")
+    res = client.get(
+        "/v0/teams/not-a-uuid/analytics/insights",
+        headers=_auth_headers(tokens),
+    )
+    assert res.status_code == 404
+
+
+def test_insights_empty_team(client):
+    tokens = _register_and_login(client, "ins_empty@example.com")
+    headers = _auth_headers(tokens)
+    team = _create_team(client, headers, name="Empty Insights Team")
+
+    res = client.get(
+        f"/v0/teams/{team['team_id']}/analytics/insights",
+        headers=headers,
+    )
+    assert res.status_code == 200
+    data = res.json()
+
+    # Always 14 daily entries, all zeros
+    assert len(data["daily_results_last_14d"]) == 14
+    for entry in data["daily_results_last_14d"]:
+        assert entry["count"] == 0
+
+    assert data["top_bug_categories_last_30d"] == []
+    assert data["top_signatures_last_30d"] == []
+    assert data["member_activity_last_30d"] == []
+
+
+def test_insights_shape_and_data(client):
+    tok_owner = _register_and_login(client, "ins_shape_owner@example.com")
+    tok_member = _register_and_login(client, "ins_shape_member@example.com")
+    headers_owner = _auth_headers(tok_owner)
+    headers_member = _auth_headers(tok_member)
+
+    team = _create_team(client, headers_owner, name="Insights Shape Team")
+    client.post(
+        f"/v0/teams/{team['team_id']}/members",
+        json={"email": "ins_shape_member@example.com", "role": "member"},
+        headers=headers_owner,
+    )
+
+    sql_finding = {
+        "id": "f1",
+        "category": "sql_injection",
+        "severity": "critical",
+        "title": "SQL Injection",
+        "description": "desc",
+        "line_start": 1,
+        "line_end": 2,
+    }
+
+    # Owner saves 2 results with same code_hash (repeated signature)
+    _save_team_result(
+        client, headers_owner, team["team_id"], findings=[sql_finding], seed="ins-common"
+    )
+    _save_team_result(
+        client, headers_owner, team["team_id"], findings=[sql_finding], seed="ins-common"
+    )
+    # Member saves 1 result with a different signature
+    _save_team_result(client, headers_member, team["team_id"], findings=[], seed="ins-other")
+
+    res = client.get(
+        f"/v0/teams/{team['team_id']}/analytics/insights",
+        headers=headers_owner,
+    )
+    assert res.status_code == 200
+    data = res.json()
+
+    # Shape checks
+    for key in (
+        "daily_results_last_14d",
+        "top_bug_categories_last_30d",
+        "top_signatures_last_30d",
+        "member_activity_last_30d",
+    ):
+        assert key in data, f"missing key: {key}"
+
+    # 14-day daily entries; total for today should be 3
+    assert len(data["daily_results_last_14d"]) == 14
+    today_count = data["daily_results_last_14d"][-1]["count"]
+    assert today_count == 3
+
+    # Categories: sql_injection appears in 2 findings
+    cats = {c["category"]: c["count"] for c in data["top_bug_categories_last_30d"]}
+    assert "sql_injection" in cats
+    assert cats["sql_injection"] == 2
+
+    # Signatures: ins-common hash repeated twice → count=2; ins-other → count=1
+    assert len(data["top_signatures_last_30d"]) == 2
+    top_sig = data["top_signatures_last_30d"][0]
+    assert top_sig["signature_hash"] == _make_hash("ins-common")
+    assert top_sig["count"] == 2
+
+    # Member activity: owner has 2 results, member has 1
+    assert len(data["member_activity_last_30d"]) == 2
+    counts = sorted(m["results_count"] for m in data["member_activity_last_30d"])
+    assert counts == [1, 2]
+    # Ranked descending: first entry is the owner with 2 results
+    assert data["member_activity_last_30d"][0]["results_count"] == 2

@@ -9,6 +9,7 @@ import { ResultFilters } from "@/components/results/ResultFilters";
 import { useAuth } from "@/lib/auth/context";
 import { useWorkspace } from "@/lib/workspace/context";
 import { TeamAnalyticsPanel } from "@/components/teams/TeamAnalyticsPanel";
+import { TeamInsightsPanel } from "@/components/teams/TeamInsightsPanel";
 
 const PAGE_SIZE = 20;
 
@@ -68,6 +69,11 @@ export default function DashboardPage() {
       {/* Team analytics panel (team scope only) */}
       {scope !== "personal" && (
         <TeamAnalyticsPanel teamId={scope.id} />
+      )}
+
+      {/* Team insights panel (team scope only) */}
+      {scope !== "personal" && (
+        <TeamInsightsPanel teamId={scope.id} />
       )}
 
       {/* Filters */}
