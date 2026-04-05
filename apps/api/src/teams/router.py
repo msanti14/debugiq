@@ -5,9 +5,9 @@ Teams router — /v0/teams
 import uuid
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import desc, func
 from sqlalchemy.exc import IntegrityError
@@ -247,9 +247,12 @@ def add_member(
 @router.get("/{team_id}/analytics/summary", response_model=TeamAnalyticsSummary)
 def get_team_analytics_summary(
     team_id: str,
+    days: Annotated[int, Query(ge=1)] = 30,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> TeamAnalyticsSummary:
+    if days not in (7, 14, 30, 90):
+        raise HTTPException(status_code=422, detail="days must be one of 7, 14, 30, 90")
     team = _get_team_or_404(db, team_id)
     _require_member(db, team, current_user)
 
@@ -265,7 +268,7 @@ def get_team_analytics_summary(
 
     sev: dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
     findings_rows = team_results.with_entities(AnalysisResult.findings).all()
-    for findings, in findings_rows:
+    for (findings,) in findings_rows:
         for finding in findings:
             s = str(finding.get("severity", "")) if isinstance(finding, dict) else ""
             if s in sev:
@@ -293,7 +296,7 @@ def get_team_analytics_summary(
 
     active_users_last_30d = (
         team_results.with_entities(func.count(func.distinct(AnalysisResult.user_id)))
-        .filter(AnalysisResult.created_at >= cutoff_30d)
+        .filter(AnalysisResult.created_at >= (now - timedelta(days=days)))
         .scalar()
     )
 
@@ -311,28 +314,31 @@ def get_team_analytics_summary(
 @router.get("/{team_id}/analytics/insights", response_model=TeamInsights)
 def get_team_analytics_insights(
     team_id: str,
+    days: Annotated[int, Query(ge=1)] = 30,
+    top_n: Annotated[int, Query(ge=1, le=50)] = 10,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> TeamInsights:
+    if days not in (7, 14, 30, 90):
+        raise HTTPException(status_code=422, detail="days must be one of 7, 14, 30, 90")
     team = _get_team_or_404(db, team_id)
     _require_member(db, team, current_user)
 
     team_results = db.query(AnalysisResult).filter(AnalysisResult.team_id == team.id)
 
     now = datetime.now(UTC)
-    cutoff_14d = now - timedelta(days=14)
-    cutoff_30d = now - timedelta(days=30)
+    cutoff = now - timedelta(days=days)
 
-    # ── Daily activity: build a full 14-day range, fill zeros for missing days ──
+    # ── Daily activity: build a full `days`-day range, fill zeros for missing days ──
     daily_counts: dict[str, int] = {
-        (now - timedelta(days=13 - i)).date().isoformat(): 0 for i in range(14)
+        (now - timedelta(days=days - 1 - i)).date().isoformat(): 0 for i in range(days)
     }
     daily_rows = (
         team_results.with_entities(
             func.date(AnalysisResult.created_at),
             func.count(AnalysisResult.id),
         )
-        .filter(AnalysisResult.created_at >= cutoff_14d)
+        .filter(AnalysisResult.created_at >= cutoff)
         .group_by(func.date(AnalysisResult.created_at))
         .all()
     )
@@ -344,14 +350,14 @@ def get_team_analytics_insights(
         DailyResultCount(date=d, count=c) for d, c in sorted(daily_counts.items())
     ]
 
-    # ── Top bug categories: aggregate finding.category from last 30d ──────────
+    # ── Top bug categories: aggregate finding.category from last `days`d ──────────
     category_counts: dict[str, int] = {}
     findings_rows = (
         team_results.with_entities(AnalysisResult.findings)
-        .filter(AnalysisResult.created_at >= cutoff_30d)
+        .filter(AnalysisResult.created_at >= cutoff)
         .all()
     )
-    for findings, in findings_rows:
+    for (findings,) in findings_rows:
         for finding in findings:
             if isinstance(finding, dict):
                 cat = str(finding.get("category", "")).strip()
@@ -359,19 +365,19 @@ def get_team_analytics_insights(
                     category_counts[cat] = category_counts.get(cat, 0) + 1
     top_bug_categories_last_30d = [
         CategoryCount(category=cat, count=cnt)
-        for cat, cnt in sorted(category_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+        for cat, cnt in sorted(category_counts.items(), key=lambda x: x[1], reverse=True)[:top_n]
     ]
 
-    # ── Top signatures: group by code_hash from last 30d ─────────────────────
+    # ── Top signatures: group by code_hash from last `days`d ─────────────────────
     signature_rows = (
         team_results.with_entities(
             AnalysisResult.code_hash,
             func.count(AnalysisResult.id).label("result_count"),
         )
-        .filter(AnalysisResult.created_at >= cutoff_30d)
+        .filter(AnalysisResult.created_at >= cutoff)
         .group_by(AnalysisResult.code_hash)
         .order_by(desc("result_count"))
-        .limit(10)
+        .limit(top_n)
         .all()
     )
     top_signatures_last_30d = [
@@ -389,10 +395,11 @@ def get_team_analytics_insights(
         .outerjoin(User, User.id == AnalysisResult.user_id)
         .filter(
             AnalysisResult.team_id == team.id,
-            AnalysisResult.created_at >= cutoff_30d,
+            AnalysisResult.created_at >= cutoff,
         )
         .group_by(AnalysisResult.user_id, User.display_name)
         .order_by(desc("result_count"))
+        .limit(top_n)
         .all()
     )
     member_activity_last_30d = [

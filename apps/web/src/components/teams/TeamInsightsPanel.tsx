@@ -2,9 +2,11 @@
 /**
  * apps/web/src/components/teams/TeamInsightsPanel.tsx
  *
- * Renders team insights: 14-day trend, top categories, top signatures,
- * and member activity ranking. Fetched from
- * GET /v0/teams/{teamId}/analytics/insights.
+ * Renders team insights: activity trend, top categories, top signatures,
+ * and member activity ranking. Supports configurable time window (days)
+ * and top-N limit via pill selectors.
+ *
+ * Fetched from GET /v0/teams/{teamId}/analytics/insights.
  */
 
 import { useState, useEffect } from "react";
@@ -12,6 +14,14 @@ import type { ReactNode } from "react";
 import type { TeamInsights } from "@debugiq/shared-types";
 import { getTeamInsights } from "@/lib/api/teams";
 import { ApiError } from "@/lib/api/client";
+
+// ── Types ───────────────────────────────────────────────────────────────────────
+
+type DaysOption = 7 | 14 | 30 | 90;
+type TopNOption = 5 | 10 | 20 | 50;
+
+const DAYS_OPTIONS: DaysOption[] = [7, 14, 30, 90];
+const TOP_N_OPTIONS: TopNOption[] = [5, 10, 20, 50];
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
@@ -28,6 +38,40 @@ function EmptyNote({ message }: { message: string }) {
   return <p className="text-xs text-muted">{message}</p>;
 }
 
+function PillSelector<T extends number>({
+  options,
+  value,
+  onChange,
+  label,
+  format,
+}: {
+  options: T[];
+  value: T;
+  onChange: (v: T) => void;
+  label: string;
+  format: (v: T) => string;
+}) {
+  return (
+    <div className="flex items-center gap-2" aria-label={label}>
+      {options.map((opt) => (
+        <button
+          key={opt}
+          type="button"
+          onClick={() => onChange(opt)}
+          className={[
+            "rounded px-2 py-0.5 text-xs font-medium transition-colors",
+            opt === value
+              ? "bg-indigo-600 text-white"
+              : "bg-white/5 text-muted hover:bg-white/10",
+          ].join(" ")}
+        >
+          {format(opt)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ── Main component ──────────────────────────────────────────────────────────────
 
 interface Props {
@@ -35,6 +79,8 @@ interface Props {
 }
 
 export function TeamInsightsPanel({ teamId }: Props) {
+  const [days, setDays] = useState<DaysOption>(30);
+  const [topN, setTopN] = useState<TopNOption>(10);
   const [data, setData] = useState<TeamInsights | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +89,7 @@ export function TeamInsightsPanel({ teamId }: Props) {
     setLoading(true);
     setError(null);
     setData(null);
-    getTeamInsights(teamId)
+    getTeamInsights(teamId, { days, top_n: topN })
       .then(setData)
       .catch((err) => {
         setError(
@@ -51,7 +97,7 @@ export function TeamInsightsPanel({ teamId }: Props) {
         );
       })
       .finally(() => setLoading(false));
-  }, [teamId]);
+  }, [teamId, days, topN]);
 
   if (loading) {
     return (
@@ -76,10 +122,28 @@ export function TeamInsightsPanel({ teamId }: Props) {
 
   return (
     <div data-testid="insights-panel" className="flex flex-col gap-4">
-      {/* 14-day activity trend */}
-      <InsightSection title="14-day activity trend">
+      {/* Controls */}
+      <div className="flex flex-wrap items-center gap-4">
+        <PillSelector<DaysOption>
+          options={DAYS_OPTIONS}
+          value={days}
+          onChange={setDays}
+          label="Range selector"
+          format={(v) => `${v}d`}
+        />
+        <PillSelector<TopNOption>
+          options={TOP_N_OPTIONS}
+          value={topN}
+          onChange={setTopN}
+          label="Top N selector"
+          format={(v) => String(v)}
+        />
+      </div>
+
+      {/* Activity trend */}
+      <InsightSection title={`${days}-day activity trend`}>
         {allZero ? (
-          <EmptyNote message="No activity in the last 14 days." />
+          <EmptyNote message={`No activity in the last ${days} days.`} />
         ) : (
           <div
             data-testid="trend-bars"
@@ -108,7 +172,7 @@ export function TeamInsightsPanel({ teamId }: Props) {
 
       {/* Top bug categories + top signatures */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <InsightSection title="Top bug categories (30d)">
+        <InsightSection title={`Top bug categories (${days}d)`}>
           {data.top_bug_categories_last_30d.length === 0 ? (
             <EmptyNote message="No findings recorded yet." />
           ) : (
@@ -125,7 +189,7 @@ export function TeamInsightsPanel({ teamId }: Props) {
           )}
         </InsightSection>
 
-        <InsightSection title="Top signatures (30d)">
+        <InsightSection title={`Top signatures (${days}d)`}>
           {data.top_signatures_last_30d.length === 0 ? (
             <EmptyNote message="No signatures recorded yet." />
           ) : (
@@ -147,9 +211,9 @@ export function TeamInsightsPanel({ teamId }: Props) {
       </div>
 
       {/* Member activity ranking */}
-      <InsightSection title="Member activity (30d)">
+      <InsightSection title={`Member activity (${days}d)`}>
         {data.member_activity_last_30d.length === 0 ? (
-          <EmptyNote message="No member activity in the last 30 days." />
+          <EmptyNote message={`No member activity in the last ${days} days.`} />
         ) : (
           <ol className="flex flex-col gap-2">
             {data.member_activity_last_30d.map(({ user_id, display_name, results_count }, idx) => (

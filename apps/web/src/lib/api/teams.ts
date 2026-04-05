@@ -34,10 +34,15 @@ export function addTeamMember(teamId: string, body: AddMemberRequest): Promise<T
   });
 }
 
-export function getTeamAnalyticsSummary(teamId: string): Promise<TeamAnalyticsSummary> {
-  return apiFetch<TeamAnalyticsSummary>(`/v0/teams/${teamId}/analytics/summary`);
+export function getTeamAnalyticsSummary(teamId: string, params?: { days?: number }): Promise<TeamAnalyticsSummary> {
+  const qs = params?.days !== undefined ? `?days=${params.days}` : "";
+  return apiFetch<TeamAnalyticsSummary>(`/v0/teams/${teamId}/analytics/summary${qs}`);
 }
 
-export function getTeamInsights(teamId: string): Promise<TeamInsights> {
-  return apiFetch<TeamInsights>(`/v0/teams/${teamId}/analytics/insights`);
+export function getTeamInsights(teamId: string, params?: { days?: number; top_n?: number }): Promise<TeamInsights> {
+  const search = new URLSearchParams();
+  if (params?.days !== undefined) search.set("days", String(params.days));
+  if (params?.top_n !== undefined) search.set("top_n", String(params.top_n));
+  const qs = search.toString() ? `?${search.toString()}` : "";
+  return apiFetch<TeamInsights>(`/v0/teams/${teamId}/analytics/insights${qs}`);
 }
