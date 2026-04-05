@@ -30,6 +30,7 @@ class TeamResponse(BaseModel):
     name: str
     owner_id: str
     tier: str
+    created_at: str
 
 
 class TeamMemberResponse(BaseModel):
@@ -74,6 +75,7 @@ def _to_team_response(team: Team) -> TeamResponse:
         name=team.name,
         owner_id=str(team.owner_id),
         tier=team.tier,
+        created_at=team.created_at.isoformat(),
     )
 
 

@@ -263,3 +263,129 @@ def test_list_results_team_id_non_member_returns_403(client):
 
     res = client.get(f"/v0/results?team_id={team['team_id']}", headers=_auth_headers(tok_b))
     assert res.status_code == 403
+
+
+# ── Hardening: TeamResponse.created_at ────────────────────────────────────────
+
+
+def test_team_response_includes_created_at(client):
+    tokens = _register_and_login(client, "created_at_check@example.com")
+    headers = _auth_headers(tokens)
+    team = _create_team(client, headers, name="Timestamp Team")
+    assert "created_at" in team
+    assert team["created_at"]  # non-empty string
+
+
+# ── Hardening: save result with team_id ───────────────────────────────────────
+
+
+def test_save_result_with_team_id_persists(client):
+    tokens = _register_and_login(client, "save_team_result@example.com")
+    headers = _auth_headers(tokens)
+    team = _create_team(client, headers)
+
+    res = client.post(
+        "/v0/results",
+        json={
+            "language": "python",
+            "mode": "quick",
+            "code_hash": _make_hash("team-scoped-code"),
+            "findings": [],
+            "model_used": "gpt-4o",
+            "demo_mode": False,
+            "analyzed_at": "2026-04-01T12:00:00Z",
+            "team_id": team["team_id"],
+        },
+        headers=headers,
+    )
+    assert res.status_code == 201
+
+    # result should appear in team-scoped list
+    list_res = client.get(f"/v0/results?team_id={team['team_id']}", headers=headers)
+    assert list_res.status_code == 200
+    assert list_res.json()["total"] == 1
+
+
+def test_save_result_invalid_team_id_returns_422(client):
+    tokens = _register_and_login(client, "save_invalid_team@example.com")
+    headers = _auth_headers(tokens)
+
+    res = client.post(
+        "/v0/results",
+        json={
+            "language": "python",
+            "mode": "quick",
+            "code_hash": _make_hash("bad-team-id"),
+            "findings": [],
+            "model_used": "gpt-4o",
+            "demo_mode": False,
+            "analyzed_at": "2026-04-01T12:00:00Z",
+            "team_id": "not-a-uuid",
+        },
+        headers=headers,
+    )
+    assert res.status_code == 422
+
+
+def test_save_result_non_member_team_id_returns_403(client):
+    tok_owner = _register_and_login(client, "nm_owner@example.com")
+    tok_other = _register_and_login(client, "nm_other@example.com")
+
+    team = _create_team(client, _auth_headers(tok_owner))
+
+    res = client.post(
+        "/v0/results",
+        json={
+            "language": "python",
+            "mode": "quick",
+            "code_hash": _make_hash("non-member-team"),
+            "findings": [],
+            "model_used": "gpt-4o",
+            "demo_mode": False,
+            "analyzed_at": "2026-04-01T12:00:00Z",
+            "team_id": team["team_id"],
+        },
+        headers=_auth_headers(tok_other),
+    )
+    assert res.status_code == 403
+
+
+# ── Hardening: get_result team member access ──────────────────────────────────
+
+
+def test_get_result_team_member_can_access(client):
+    tok_owner = _register_and_login(client, "gr_owner@example.com")
+    tok_member = _register_and_login(client, "gr_member@example.com")
+    headers_owner = _auth_headers(tok_owner)
+
+    team = _create_team(client, headers_owner)
+
+    # add tok_member to team
+    client.post(
+        f"/v0/teams/{team['team_id']}/members",
+        json={"email": "gr_member@example.com", "role": "member"},
+        headers=headers_owner,
+    )
+
+    # owner saves a team-scoped result
+    save_res = client.post(
+        "/v0/results",
+        json={
+            "language": "python",
+            "mode": "quick",
+            "code_hash": _make_hash("team-owned-result"),
+            "findings": [],
+            "model_used": "gpt-4o",
+            "demo_mode": False,
+            "analyzed_at": "2026-04-01T12:00:00Z",
+            "team_id": team["team_id"],
+        },
+        headers=headers_owner,
+    )
+    assert save_res.status_code == 201
+    result_id = save_res.json()["result_id"]
+
+    # team member can fetch it
+    get_res = client.get(f"/v0/results/{result_id}", headers=_auth_headers(tok_member))
+    assert get_res.status_code == 200
+    assert get_res.json()["result_id"] == result_id

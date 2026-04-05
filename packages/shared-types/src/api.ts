@@ -58,6 +58,7 @@ export interface SaveResultRequest {
   duration_ms?: number;
   demo_mode: boolean;
   analyzed_at: string;  // ISO 8601
+  team_id?: string;
 }
 
 export interface SaveResultResponse {
