@@ -160,3 +160,33 @@ export interface TeamAnalyticsSummary {
   language_counts: LanguageCounts;
   active_members_last_30d: number;
 }
+
+// ── Team Insights API Shapes ──────────────────────────────────────────────────
+
+export interface DailyResultCount {
+  date: string;  // ISO date YYYY-MM-DD
+  count: number;
+}
+
+export interface CategoryCount {
+  category: string;
+  count: number;
+}
+
+export interface SignatureCount {
+  signature_hash: string;
+  count: number;
+}
+
+export interface MemberActivityEntry {
+  user_id: string;
+  display_name: string | null;
+  results_count: number;
+}
+
+export interface TeamInsights {
+  daily_results_last_14d: DailyResultCount[];
+  top_bug_categories_last_30d: CategoryCount[];
+  top_signatures_last_30d: SignatureCount[];
+  member_activity_last_30d: MemberActivityEntry[];
+}

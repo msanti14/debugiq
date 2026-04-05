@@ -5,7 +5,7 @@ Teams router — /v0/teams
 import uuid
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -71,6 +71,34 @@ class TeamAnalyticsSummary(BaseModel):
     mode_counts: ModeCounts
     language_counts: LanguageCounts
     active_members_last_30d: int
+
+
+class DailyResultCount(BaseModel):
+    date: str  # ISO date YYYY-MM-DD
+    count: int
+
+
+class CategoryCount(BaseModel):
+    category: str
+    count: int
+
+
+class SignatureCount(BaseModel):
+    signature_hash: str
+    count: int
+
+
+class MemberActivityEntry(BaseModel):
+    user_id: str
+    display_name: str | None
+    results_count: int
+
+
+class TeamInsights(BaseModel):
+    daily_results_last_14d: list[DailyResultCount]
+    top_bug_categories_last_30d: list[CategoryCount]
+    top_signatures_last_30d: list[SignatureCount]
+    member_activity_last_30d: list[MemberActivityEntry]
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -253,7 +281,9 @@ def get_team_analytics_summary(
         if r.language in lang:
             lang[r.language] += 1
 
-    active_users: set[Any] = {r.user_id for r in results if _ensure_utc(r.created_at) >= cutoff_30d}
+    active_users: set[uuid.UUID] = {
+        r.user_id for r in results if _ensure_utc(r.created_at) >= cutoff_30d
+    }
 
     return TeamAnalyticsSummary(
         total_results=total_results,
@@ -263,4 +293,82 @@ def get_team_analytics_summary(
         mode_counts=ModeCounts(**mode),
         language_counts=LanguageCounts(**lang),
         active_members_last_30d=len(active_users),
+    )
+
+
+@router.get("/{team_id}/analytics/insights", response_model=TeamInsights)
+def get_team_analytics_insights(
+    team_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TeamInsights:
+    team = _get_team_or_404(db, team_id)
+    _require_member(db, team, current_user)
+
+    all_results: list[AnalysisResult] = (
+        db.query(AnalysisResult).filter(AnalysisResult.team_id == team.id).all()
+    )
+
+    now = datetime.now(UTC)
+    cutoff_14d = now - timedelta(days=14)
+    cutoff_30d = now - timedelta(days=30)
+
+    results_last_30d = [r for r in all_results if _ensure_utc(r.created_at) >= cutoff_30d]
+    results_last_14d = [r for r in results_last_30d if _ensure_utc(r.created_at) >= cutoff_14d]
+
+    # ── Daily activity: build a full 14-day range, fill zeros for missing days ──
+    daily_counts: dict[str, int] = {
+        (now - timedelta(days=13 - i)).date().isoformat(): 0 for i in range(14)
+    }
+    for r in results_last_14d:
+        day = _ensure_utc(r.created_at).date().isoformat()
+        if day in daily_counts:
+            daily_counts[day] += 1
+    daily_results_last_14d = [
+        DailyResultCount(date=d, count=c) for d, c in sorted(daily_counts.items())
+    ]
+
+    # ── Top bug categories: aggregate finding.category from last 30d ──────────
+    category_counts: dict[str, int] = {}
+    for r in results_last_30d:
+        for finding in r.findings:
+            if isinstance(finding, dict):
+                cat = str(finding.get("category", "")).strip()
+                if cat:
+                    category_counts[cat] = category_counts.get(cat, 0) + 1
+    top_bug_categories_last_30d = [
+        CategoryCount(category=cat, count=cnt)
+        for cat, cnt in sorted(category_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+    ]
+
+    # ── Top signatures: group by code_hash from last 30d ─────────────────────
+    sig_counts: dict[str, int] = {}
+    for r in results_last_30d:
+        sig_counts[r.code_hash] = sig_counts.get(r.code_hash, 0) + 1
+    top_signatures_last_30d = [
+        SignatureCount(signature_hash=sig, count=cnt)
+        for sig, cnt in sorted(sig_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+    ]
+
+    # ── Member activity: group by user_id, join display_name ──────────────────
+    member_counts: dict[uuid.UUID, int] = {}
+    for r in results_last_30d:
+        member_counts[r.user_id] = member_counts.get(r.user_id, 0) + 1
+
+    member_activity_last_30d: list[MemberActivityEntry] = []
+    for uid, cnt in sorted(member_counts.items(), key=lambda x: x[1], reverse=True):
+        user = db.query(User).filter(User.id == uid).first()
+        member_activity_last_30d.append(
+            MemberActivityEntry(
+                user_id=str(uid),
+                display_name=user.display_name if user else None,
+                results_count=cnt,
+            )
+        )
+
+    return TeamInsights(
+        daily_results_last_14d=daily_results_last_14d,
+        top_bug_categories_last_30d=top_bug_categories_last_30d,
+        top_signatures_last_30d=top_signatures_last_30d,
+        member_activity_last_30d=member_activity_last_30d,
     )
