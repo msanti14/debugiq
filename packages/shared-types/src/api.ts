@@ -58,6 +58,7 @@ export interface SaveResultRequest {
   duration_ms?: number;
   demo_mode: boolean;
   analyzed_at: string;  // ISO 8601
+  team_id?: string;
 }
 
 export interface SaveResultResponse {
@@ -103,4 +104,29 @@ export interface PostAnalyticsEventRequest {
 
 export interface PostAnalyticsEventResponse {
   event_id: string;
+}
+
+// ── Teams API Shapes ──────────────────────────────────────────────────────────
+
+export interface TeamResponse {
+  team_id: string;
+  name: string;
+  owner_id: string;
+  tier: string;
+  created_at: string;
+}
+
+export interface CreateTeamRequest {
+  name: string;
+}
+
+export interface TeamMemberResponse {
+  user_id: string;
+  email: string;
+  role: string;
+}
+
+export interface AddMemberRequest {
+  email: string;
+  role: "admin" | "member";
 }

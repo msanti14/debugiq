@@ -7,7 +7,7 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
 from src.core.dependencies import get_current_user
-from src.db.models import AnalysisResult, User
+from src.db.models import AnalysisResult, TeamMember, User
 from src.db.session import get_db
 
 router = APIRouter(prefix="/results", tags=["results"])
@@ -49,6 +49,7 @@ class SaveResultRequest(BaseModel):
     duration_ms: int | None = None
     demo_mode: bool = False
     analyzed_at: datetime
+    team_id: str | None = None
 
     @field_validator("code_hash")
     @classmethod
@@ -94,6 +95,20 @@ def save_result(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> SaveResultResponse:
+    team_uuid: uuid.UUID | None = None
+    if body.team_id is not None:
+        try:
+            team_uuid = uuid.UUID(body.team_id)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="invalid_team_id")
+        membership = (
+            db.query(TeamMember)
+            .filter(TeamMember.team_id == team_uuid, TeamMember.user_id == current_user.id)
+            .first()
+        )
+        if not membership:
+            raise HTTPException(status_code=403, detail="not_a_member")
+
     result = AnalysisResult(
         user_id=current_user.id,
         language=body.language,
@@ -105,6 +120,7 @@ def save_result(
         duration_ms=body.duration_ms,
         demo_mode=body.demo_mode,
         analyzed_at=body.analyzed_at,
+        team_id=team_uuid,
     )
     db.add(result)
     db.commit()
@@ -122,14 +138,25 @@ def get_result(
         rid = uuid.UUID(result_id)
     except ValueError:
         raise HTTPException(status_code=404, detail="result_not_found")
-    result = (
-        db.query(AnalysisResult)
-        .filter(AnalysisResult.id == rid, AnalysisResult.user_id == current_user.id)
-        .first()
-    )
+    result = db.query(AnalysisResult).filter(AnalysisResult.id == rid).first()
     if not result:
         raise HTTPException(status_code=404, detail="result_not_found")
-    return _to_response(result)
+
+    # Owner access
+    if result.user_id == current_user.id:
+        return _to_response(result)
+
+    # Team member access
+    if result.team_id is not None:
+        membership = (
+            db.query(TeamMember)
+            .filter(TeamMember.team_id == result.team_id, TeamMember.user_id == current_user.id)
+            .first()
+        )
+        if membership:
+            return _to_response(result)
+
+    raise HTTPException(status_code=404, detail="result_not_found")
 
 
 @router.get("", response_model=PaginatedResults)
@@ -138,10 +165,26 @@ def list_results(
     page_size: int = Query(default=20, ge=1, le=100),
     language: str | None = Query(default=None),
     mode: str | None = Query(default=None),
+    team_id: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> PaginatedResults:
-    query = db.query(AnalysisResult).filter(AnalysisResult.user_id == current_user.id)
+    if team_id is not None:
+        try:
+            tid = uuid.UUID(team_id)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="invalid_team_id")
+        membership = (
+            db.query(TeamMember)
+            .filter(TeamMember.team_id == tid, TeamMember.user_id == current_user.id)
+            .first()
+        )
+        if not membership:
+            raise HTTPException(status_code=403, detail="not_a_member")
+        query = db.query(AnalysisResult).filter(AnalysisResult.team_id == tid)
+    else:
+        query = db.query(AnalysisResult).filter(AnalysisResult.user_id == current_user.id)
+
     if language:
         query = query.filter(AnalysisResult.language == language)
     if mode:

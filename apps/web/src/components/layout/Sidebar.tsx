@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth/context";
+import { useWorkspace } from "@/lib/workspace/context";
 import { Button } from "@/components/ui/Button";
 
 interface NavItem {
@@ -68,6 +69,7 @@ const navItems: NavItem[] = [
 export function Sidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
+  const { scope, teams, teamsLoading, setScope } = useWorkspace();
 
   return (
     <aside className="flex w-60 flex-col gap-6 border-r border-white/5 bg-surface-1 px-4 py-6">
@@ -79,6 +81,58 @@ export function Sidebar() {
         <span className="rounded bg-brand-900/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-brand-500">
           beta
         </span>
+      </div>
+
+      {/* Workspace selector */}
+      <div className="flex flex-col gap-1">
+        <p className="px-2 text-[10px] font-semibold uppercase tracking-wider text-muted">
+          Workspace
+        </p>
+
+        {/* Personal */}
+        <button
+          onClick={() => setScope("personal")}
+          className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
+            scope === "personal"
+              ? "bg-brand-500/15 text-white"
+              : "text-muted hover:bg-surface-2 hover:text-white"
+          }`}
+        >
+          <svg className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+          </svg>
+          Personal
+        </button>
+
+        {/* Teams */}
+        {teamsLoading ? (
+          <div className="flex flex-col gap-1 px-3 py-1">
+            <div className="h-3 animate-pulse rounded bg-surface-2" />
+            <div className="h-3 animate-pulse rounded bg-surface-2" />
+          </div>
+        ) : (
+          teams.map((team) => {
+            const active = scope !== "personal" && scope.id === team.team_id;
+            return (
+              <button
+                key={team.team_id}
+                onClick={() =>
+                  setScope({ type: "team", id: team.team_id, name: team.name })
+                }
+                className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
+                  active
+                    ? "bg-brand-500/15 text-white"
+                    : "text-muted hover:bg-surface-2 hover:text-white"
+                }`}
+              >
+                <svg className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2h5M12 12a4 4 0 100-8 4 4 0 000 8z" />
+                </svg>
+                <span className="truncate">{team.name}</span>
+              </button>
+            );
+          })
+        )}
       </div>
 
       {/* Navigation */}
