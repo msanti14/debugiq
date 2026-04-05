@@ -8,6 +8,7 @@ import { ResultsTable } from "@/components/results/ResultsTable";
 import { ResultFilters } from "@/components/results/ResultFilters";
 import { useAuth } from "@/lib/auth/context";
 import { useWorkspace } from "@/lib/workspace/context";
+import { TeamAnalyticsPanel } from "@/components/teams/TeamAnalyticsPanel";
 
 const PAGE_SIZE = 20;
 
@@ -62,6 +63,11 @@ export default function DashboardPage() {
       {/* Summary stats */}
       {data && !loading && (
         <DashboardStats data={data} />
+      )}
+
+      {/* Team analytics panel (team scope only) */}
+      {scope !== "personal" && (
+        <TeamAnalyticsPanel teamId={scope.id} />
       )}
 
       {/* Filters */}

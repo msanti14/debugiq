@@ -130,3 +130,33 @@ export interface AddMemberRequest {
   email: string;
   role: "admin" | "member";
 }
+
+// ── Team Analytics API Shapes ─────────────────────────────────────────────────
+
+export interface SeverityCounts {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  info: number;
+}
+
+export interface ModeCounts {
+  quick: number;
+  learn: number;
+}
+
+export interface LanguageCounts {
+  python: number;
+  typescript: number;
+}
+
+export interface TeamAnalyticsSummary {
+  total_results: number;
+  results_last_7d: number;
+  results_last_30d: number;
+  severity_counts: SeverityCounts;
+  mode_counts: ModeCounts;
+  language_counts: LanguageCounts;
+  active_members_last_30d: number;
+}
