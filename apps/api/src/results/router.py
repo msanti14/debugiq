@@ -7,7 +7,7 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
 from src.core.dependencies import get_current_user
-from src.db.models import AnalysisResult, User
+from src.db.models import AnalysisResult, TeamMember, User
 from src.db.session import get_db
 
 router = APIRouter(prefix="/results", tags=["results"])
@@ -138,10 +138,26 @@ def list_results(
     page_size: int = Query(default=20, ge=1, le=100),
     language: str | None = Query(default=None),
     mode: str | None = Query(default=None),
+    team_id: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> PaginatedResults:
-    query = db.query(AnalysisResult).filter(AnalysisResult.user_id == current_user.id)
+    if team_id is not None:
+        try:
+            tid = uuid.UUID(team_id)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="invalid_team_id")
+        membership = (
+            db.query(TeamMember)
+            .filter(TeamMember.team_id == tid, TeamMember.user_id == current_user.id)
+            .first()
+        )
+        if not membership:
+            raise HTTPException(status_code=403, detail="not_a_member")
+        query = db.query(AnalysisResult).filter(AnalysisResult.team_id == tid)
+    else:
+        query = db.query(AnalysisResult).filter(AnalysisResult.user_id == current_user.id)
+
     if language:
         query = query.filter(AnalysisResult.language == language)
     if mode:
