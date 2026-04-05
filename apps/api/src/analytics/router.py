@@ -28,6 +28,7 @@ ALLOWED_EVENT_TYPES = {
     "signature_repeated",
     "hook_warning_shown",
     "hook_installed",
+    "team_insights_selector_changed",
 }
 
 # SHA-256 hex: exactly 64 lowercase hex characters.
@@ -52,6 +53,8 @@ class AnalyticsProperties(BaseModel):
     mode: Literal["quick", "learn"] | None = None
     language: Literal["python", "typescript"] | None = None
     repo_key_hash: str | None = None
+    days: int | None = None
+    top_n: int | None = None
 
     @field_validator("signature_hash", "repo_key_hash")
     @classmethod

@@ -9,11 +9,13 @@
  * Fetched from GET /v0/teams/{teamId}/analytics/insights.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { ReactNode } from "react";
 import type { TeamInsights } from "@debugiq/shared-types";
 import { getTeamInsights } from "@/lib/api/teams";
 import { ApiError } from "@/lib/api/client";
+import { postAnalyticsEvent } from "@/lib/api/analytics";
+import { Button } from "@/components/ui/Button";
 
 // ── Types ───────────────────────────────────────────────────────────────────────
 
@@ -28,14 +30,16 @@ const TOP_N_OPTIONS: TopNOption[] = [5, 10, 20, 50];
 function InsightSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="rounded-lg border border-white/5 bg-surface-1 px-5 py-4">
-      <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted">{title}</p>
+      <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-muted">{title}</h3>
       {children}
     </div>
   );
 }
 
 function EmptyNote({ message }: { message: string }) {
-  return <p className="text-xs text-muted">{message}</p>;
+  return (
+    <p className="text-xs italic text-muted/70">{message}</p>
+  );
 }
 
 function PillSelector<T extends number>({
@@ -44,22 +48,28 @@ function PillSelector<T extends number>({
   onChange,
   label,
   format,
+  disabled = false,
 }: {
   options: T[];
   value: T;
   onChange: (v: T) => void;
   label: string;
   format: (v: T) => string;
+  disabled?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-2" aria-label={label}>
+    <div role="group" aria-label={label} className="flex items-center gap-2">
       {options.map((opt) => (
         <button
           key={opt}
           type="button"
           onClick={() => onChange(opt)}
+          disabled={disabled}
+          aria-pressed={opt === value}
           className={[
             "rounded px-2 py-0.5 text-xs font-medium transition-colors",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500",
+            "disabled:cursor-not-allowed disabled:opacity-50",
             opt === value
               ? "bg-indigo-600 text-white"
               : "bg-white/5 text-muted hover:bg-white/10",
@@ -68,6 +78,82 @@ function PillSelector<T extends number>({
           {format(opt)}
         </button>
       ))}
+    </div>
+  );
+}
+
+// ── Loading skeleton ────────────────────────────────────────────────────────────
+
+// Fixed bar heights for the trend skeleton (avoids non-deterministic Math.random).
+const SKELETON_BAR_HEIGHTS = [30, 60, 20, 75, 45, 55, 15, 90, 35, 70, 40, 65, 25, 50];
+
+function InsightsSkeleton() {
+  return (
+    <div
+      data-testid="insights-loading"
+      className="flex flex-col gap-4"
+      aria-busy="true"
+      aria-label="Loading insights…"
+    >
+      {/* Controls row skeleton */}
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="flex items-center gap-2">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="h-6 w-9 animate-pulse rounded bg-surface-2" />
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="h-6 w-7 animate-pulse rounded bg-surface-2" />
+          ))}
+        </div>
+      </div>
+
+      {/* Activity trend section skeleton */}
+      <div className="rounded-lg border border-white/5 bg-surface-1 px-5 py-4">
+        <div className="mb-3 h-3 w-40 animate-pulse rounded bg-surface-2" />
+        <div className="flex items-end gap-[3px]" style={{ height: "48px" }}>
+          {SKELETON_BAR_HEIGHTS.map((h, i) => (
+            <div key={i} className="flex flex-1 items-end" style={{ height: "100%" }}>
+              <div
+                className="w-full animate-pulse rounded-sm bg-surface-2"
+                style={{ height: `${h}%` }}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Two-column section skeleton */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        {[0, 1].map((i) => (
+          <div key={i} className="rounded-lg border border-white/5 bg-surface-1 px-5 py-4">
+            <div className="mb-3 h-3 w-36 animate-pulse rounded bg-surface-2" />
+            <div className="flex flex-col gap-2">
+              {[0, 1, 2].map((j) => (
+                <div key={j} className="flex items-center justify-between">
+                  <div className="h-4 w-2/3 animate-pulse rounded bg-surface-2" />
+                  <div className="h-4 w-8 animate-pulse rounded bg-surface-2" />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Member activity section skeleton */}
+      <div className="rounded-lg border border-white/5 bg-surface-1 px-5 py-4">
+        <div className="mb-3 h-3 w-36 animate-pulse rounded bg-surface-2" />
+        <div className="flex flex-col gap-2">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex items-center gap-3">
+              <div className="h-4 w-4 animate-pulse rounded bg-surface-2" />
+              <div className="h-4 flex-1 animate-pulse rounded bg-surface-2" />
+              <div className="h-4 w-8 animate-pulse rounded bg-surface-2" />
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -84,6 +170,9 @@ export function TeamInsightsPanel({ teamId }: Props) {
   const [data, setData] = useState<TeamInsights | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
+
+  const retry = useCallback(() => setRetryKey((k) => k + 1), []);
 
   useEffect(() => {
     setLoading(true);
@@ -97,20 +186,24 @@ export function TeamInsightsPanel({ teamId }: Props) {
         );
       })
       .finally(() => setLoading(false));
-  }, [teamId, days, topN]);
+  }, [teamId, days, topN, retryKey]);
 
   if (loading) {
-    return (
-      <div data-testid="insights-loading" className="text-sm text-muted">
-        Loading insights…
-      </div>
-    );
+    return <InsightsSkeleton />;
   }
 
   if (error) {
     return (
-      <div data-testid="insights-error" className="text-sm text-red-400">
-        {error}
+      <div
+        data-testid="insights-error"
+        role="alert"
+        className="rounded-lg border border-red-700/50 bg-red-900/20 p-6 text-center"
+      >
+        <p className="font-medium text-red-300">Failed to load team insights</p>
+        <p className="mt-1 text-sm text-red-400/80">{error}</p>
+        <Button variant="secondary" size="sm" className="mt-4" onClick={retry}>
+          Try again
+        </Button>
       </div>
     );
   }
@@ -127,15 +220,21 @@ export function TeamInsightsPanel({ teamId }: Props) {
         <PillSelector<DaysOption>
           options={DAYS_OPTIONS}
           value={days}
-          onChange={setDays}
-          label="Range selector"
+          onChange={(v) => {
+            setDays(v);
+            postAnalyticsEvent("team_insights_selector_changed", { days: v, top_n: topN });
+          }}
+          label="Time range"
           format={(v) => `${v}d`}
         />
         <PillSelector<TopNOption>
           options={TOP_N_OPTIONS}
           value={topN}
-          onChange={setTopN}
-          label="Top N selector"
+          onChange={(v) => {
+            setTopN(v);
+            postAnalyticsEvent("team_insights_selector_changed", { days, top_n: v });
+          }}
+          label="Top N"
           format={(v) => String(v)}
         />
       </div>

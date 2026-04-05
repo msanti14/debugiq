@@ -827,3 +827,232 @@ def test_summary_days_valid_values_return_200(client):
         assert res.status_code == 200, f"expected 200 for days={good}, got {res.status_code}"
         data = res.json()
         assert "active_members_last_30d" in data
+
+
+# ── Hardening: auth ordering — auth checks before param validation ─────────────
+
+
+def test_summary_non_member_invalid_days_returns_403_not_422(client):
+    """Non-member with invalid `days` must get 403 (not 422).
+
+    Auth / membership checks must run before query-param validation so that
+    non-members cannot learn whether a team exists by comparing 422 vs 403.
+    """
+    tok_owner = _register_and_login(client, "auth_ord_sum_owner@example.com")
+    tok_other = _register_and_login(client, "auth_ord_sum_other@example.com")
+    team = _create_team(client, _auth_headers(tok_owner))
+
+    for bad_days in (0, 1, 15, 100):
+        res = client.get(
+            f"/v0/teams/{team['team_id']}/analytics/summary?days={bad_days}",
+            headers=_auth_headers(tok_other),
+        )
+        assert res.status_code == 403, (
+            f"expected 403 for non-member with days={bad_days}, got {res.status_code}"
+        )
+        assert res.json()["detail"] == "not_a_member"
+
+
+def test_insights_non_member_invalid_days_returns_403_not_422(client):
+    """Non-member with invalid `days` must get 403 (not 422).
+
+    Same auth-ordering guarantee for the insights endpoint.
+    """
+    tok_owner = _register_and_login(client, "auth_ord_ins_owner@example.com")
+    tok_other = _register_and_login(client, "auth_ord_ins_other@example.com")
+    team = _create_team(client, _auth_headers(tok_owner))
+
+    for bad_days in (0, 1, 15, 100):
+        res = client.get(
+            f"/v0/teams/{team['team_id']}/analytics/insights?days={bad_days}",
+            headers=_auth_headers(tok_other),
+        )
+        assert res.status_code == 403, (
+            f"expected 403 for non-member with days={bad_days}, got {res.status_code}"
+        )
+        assert res.json()["detail"] == "not_a_member"
+
+
+# ── Hardening: active_members_last_30d uses strict 30-day cutoff ──────────────
+
+
+def test_summary_active_members_last_30d_ignores_days_param(client):
+    """active_members_last_30d must not be coupled to the `days` query param.
+
+    Both `days=7` and `days=30` should report the same active_members_last_30d
+    count when all contributor results were just inserted (i.e., within both
+    the 7-day and 30-day windows).  This verifies the implementation uses a
+    fixed 30-day cutoff rather than timedelta(days=days).
+    """
+    tok_owner = _register_and_login(client, "am30d_owner@example.com")
+    tok_member = _register_and_login(client, "am30d_member@example.com")
+    headers_owner = _auth_headers(tok_owner)
+    headers_member = _auth_headers(tok_member)
+
+    team = _create_team(client, headers_owner, name="AM30d Decoupled Team")
+    client.post(
+        f"/v0/teams/{team['team_id']}/members",
+        json={"email": "am30d_member@example.com", "role": "member"},
+        headers=headers_owner,
+    )
+
+    # Both users contribute a result (created_at is set by DB, so both are
+    # within any window including 7d).
+    _save_team_result(client, headers_owner, team["team_id"], seed="am30d-owner")
+    _save_team_result(client, headers_member, team["team_id"], seed="am30d-member")
+
+    res7 = client.get(
+        f"/v0/teams/{team['team_id']}/analytics/summary?days=7",
+        headers=headers_owner,
+    )
+    res30 = client.get(
+        f"/v0/teams/{team['team_id']}/analytics/summary?days=30",
+        headers=headers_owner,
+    )
+
+    assert res7.status_code == 200
+    assert res30.status_code == 200
+
+    am_7 = res7.json()["active_members_last_30d"]
+    am_30 = res30.json()["active_members_last_30d"]
+
+    # Both responses must report 2 active members (both contributed recently).
+    assert am_7 == 2, f"days=7 returned active_members_last_30d={am_7}, expected 2"
+    assert am_30 == 2, f"days=30 returned active_members_last_30d={am_30}, expected 2"
+
+    # The key invariant: the metric must be identical regardless of `days`.
+    assert am_7 == am_30, (
+        f"active_members_last_30d differs between days=7 ({am_7}) and days=30 ({am_30}); "
+        "the metric must use a fixed 30-day cutoff"
+    )
+
+
+# ── Hardening: CreateTeamRequest name validation ──────────────────────────────
+
+
+def test_create_team_empty_name_returns_422(client):
+    """Blank names (empty string or whitespace-only) must be rejected with 422."""
+    tokens = _register_and_login(client, "name_empty@example.com")
+    headers = _auth_headers(tokens)
+    for bad_name in ("", "   ", "\t\n"):
+        res = client.post("/v0/teams", json={"name": bad_name}, headers=headers)
+        assert res.status_code == 422, f"expected 422 for name={bad_name!r}, got {res.status_code}"
+
+
+def test_create_team_name_too_long_returns_422(client):
+    """Names longer than 100 characters must be rejected with 422."""
+    tokens = _register_and_login(client, "name_long@example.com")
+    headers = _auth_headers(tokens)
+    res = client.post("/v0/teams", json={"name": "x" * 101}, headers=headers)
+    assert res.status_code == 422
+
+
+def test_create_team_name_at_max_length_succeeds(client):
+    """A name of exactly 100 characters must be accepted."""
+    tokens = _register_and_login(client, "name_max@example.com")
+    headers = _auth_headers(tokens)
+    res = client.post("/v0/teams", json={"name": "x" * 100}, headers=headers)
+    assert res.status_code == 201
+    assert res.json()["name"] == "x" * 100
+
+
+def test_create_team_name_whitespace_trimmed(client):
+    """Leading/trailing whitespace must be stripped; the stored name is trimmed."""
+    tokens = _register_and_login(client, "name_trim@example.com")
+    headers = _auth_headers(tokens)
+    res = client.post("/v0/teams", json={"name": "  Trim Team  "}, headers=headers)
+    assert res.status_code == 201
+    assert res.json()["name"] == "Trim Team"
+
+
+# ── Hardening: SaveResultRequest code_hash hex charset ────────────────────────
+
+
+def test_save_result_non_hex_code_hash_returns_422(client):
+    """64-char strings containing non-hex characters must be rejected with 422."""
+    tokens = _register_and_login(client, "hash_nonhex@example.com")
+    headers = _auth_headers(tokens)
+    for bad_hash in ("g" * 64, "z" * 64, "!" * 64, "G" * 64):
+        res = client.post(
+            "/v0/results",
+            json={
+                "language": "python",
+                "mode": "quick",
+                "code_hash": bad_hash,
+                "findings": [],
+                "model_used": "gpt-4o",
+                "demo_mode": False,
+                "analyzed_at": "2026-04-01T12:00:00Z",
+            },
+            headers=headers,
+        )
+        assert res.status_code == 422, (
+            f"expected 422 for code_hash={bad_hash[:8]!r}..., got {res.status_code}"
+        )
+
+
+def test_save_result_uppercase_hex_code_hash_accepted(client):
+    """Uppercase hex characters (A-F) must be accepted (case-insensitive)."""
+    tokens = _register_and_login(client, "hash_upper@example.com")
+    headers = _auth_headers(tokens)
+    res = client.post(
+        "/v0/results",
+        json={
+            "language": "python",
+            "mode": "quick",
+            "code_hash": "A" * 64,
+            "findings": [],
+            "model_used": "gpt-4o",
+            "demo_mode": False,
+            "analyzed_at": "2026-04-01T12:00:00Z",
+        },
+        headers=headers,
+    )
+    assert res.status_code == 201
+
+
+# ── Hardening: insights top_n auth ordering ───────────────────────────────────
+
+
+def test_insights_non_member_invalid_top_n_returns_403_not_422(client):
+    """Non-member with invalid top_n must get 403 (not 422).
+
+    top_n validation must run after membership check so that non-members
+    cannot probe endpoint existence by comparing 422 vs 403 responses.
+    """
+    tok_owner = _register_and_login(client, "topn_ord_owner@example.com")
+    tok_other = _register_and_login(client, "topn_ord_other@example.com")
+    team = _create_team(client, _auth_headers(tok_owner))
+
+    for bad_top_n in (0, 51, 100):
+        res = client.get(
+            f"/v0/teams/{team['team_id']}/analytics/insights?top_n={bad_top_n}",
+            headers=_auth_headers(tok_other),
+        )
+        assert res.status_code == 403, (
+            f"expected 403 for non-member with top_n={bad_top_n}, got {res.status_code}"
+        )
+        assert res.json()["detail"] == "not_a_member"
+
+
+def test_insights_member_invalid_top_n_detail_contract(client):
+    """Member with invalid top_n must get 422 with the exact manual detail string.
+
+    Locks the response contract so that accidental reversion to FastAPI's
+    default param-validation payload shape is caught immediately.
+    """
+    tokens = _register_and_login(client, "topn_contract@example.com")
+    headers = _auth_headers(tokens)
+    team = _create_team(client, headers, name="TopN Contract Team")
+
+    for bad_top_n in (0, 51):
+        res = client.get(
+            f"/v0/teams/{team['team_id']}/analytics/insights?top_n={bad_top_n}",
+            headers=headers,
+        )
+        assert res.status_code == 422, (
+            f"expected 422 for member with top_n={bad_top_n}, got {res.status_code}"
+        )
+        assert res.json()["detail"] == "top_n must be between 1 and 50", (
+            f"unexpected detail payload for top_n={bad_top_n}: {res.json()}"
+        )

@@ -5,10 +5,10 @@ Teams router — /v0/teams
 import uuid
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Literal
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, field_validator
 from sqlalchemy import desc, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -25,6 +25,16 @@ router = APIRouter(prefix="/teams", tags=["teams"])
 
 class CreateTeamRequest(BaseModel):
     name: str
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        v = v.strip()
+        if len(v) < 1:
+            raise ValueError("name must not be empty")
+        if len(v) > 100:
+            raise ValueError("name must be at most 100 characters")
+        return v
 
 
 class TeamResponse(BaseModel):
@@ -247,14 +257,19 @@ def add_member(
 @router.get("/{team_id}/analytics/summary", response_model=TeamAnalyticsSummary)
 def get_team_analytics_summary(
     team_id: str,
-    days: Annotated[int, Query(ge=1)] = 30,
+    days: int = 30,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> TeamAnalyticsSummary:
-    if days not in (7, 14, 30, 90):
-        raise HTTPException(status_code=422, detail="days must be one of 7, 14, 30, 90")
+    # Auth checks run before query-param validation so that non-members
+    # cannot probe endpoint existence via 422 vs 403 differences.
+    # NOTE: the ge=1 Query constraint was removed from `days` so that all
+    # integer values reach this function body; the whitelist below handles
+    # all invalid values after auth.
     team = _get_team_or_404(db, team_id)
     _require_member(db, team, current_user)
+    if days not in (7, 14, 30, 90):
+        raise HTTPException(status_code=422, detail="days must be one of 7, 14, 30, 90")
 
     team_results = db.query(AnalysisResult).filter(AnalysisResult.team_id == team.id)
 
@@ -294,9 +309,11 @@ def get_team_analytics_summary(
         if language_name in lang:
             lang[language_name] = count
 
+    # active_members_last_30d always uses a strict 30-day cutoff regardless of
+    # the `days` query param, which controls only the results_last_Xd windows.
     active_users_last_30d = (
         team_results.with_entities(func.count(func.distinct(AnalysisResult.user_id)))
-        .filter(AnalysisResult.created_at >= (now - timedelta(days=days)))
+        .filter(AnalysisResult.created_at >= cutoff_30d)
         .scalar()
     )
 
@@ -314,15 +331,22 @@ def get_team_analytics_summary(
 @router.get("/{team_id}/analytics/insights", response_model=TeamInsights)
 def get_team_analytics_insights(
     team_id: str,
-    days: Annotated[int, Query(ge=1)] = 30,
-    top_n: Annotated[int, Query(ge=1, le=50)] = 10,
+    days: int = 30,
+    top_n: int = 10,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> TeamInsights:
-    if days not in (7, 14, 30, 90):
-        raise HTTPException(status_code=422, detail="days must be one of 7, 14, 30, 90")
+    # Auth checks run before query-param validation so that non-members
+    # cannot probe endpoint existence via 422 vs 403 differences.
+    # NOTE: ge=1/le=50 removed from top_n (and ge=1 from days) so that all
+    # integer values reach this function body; manual checks below handle
+    # invalid values after auth.
     team = _get_team_or_404(db, team_id)
     _require_member(db, team, current_user)
+    if days not in (7, 14, 30, 90):
+        raise HTTPException(status_code=422, detail="days must be one of 7, 14, 30, 90")
+    if not (1 <= top_n <= 50):
+        raise HTTPException(status_code=422, detail="top_n must be between 1 and 50")
 
     team_results = db.query(AnalysisResult).filter(AnalysisResult.team_id == team.id)
 

@@ -5,6 +5,7 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, act, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import React from "react";
 import * as teamsApi from "@/lib/api/teams";
 import { TeamAnalyticsPanel } from "@/components/teams/TeamAnalyticsPanel";
@@ -92,5 +93,38 @@ describe("TeamAnalyticsPanel — error", () => {
 
     expect(screen.getByTestId("analytics-error")).toBeTruthy();
     expect(screen.getByText("Failed to load team analytics.")).toBeTruthy();
+  });
+});
+
+describe("TeamAnalyticsPanel — retry", () => {
+  it("renders a 'Try again' button in the error state", async () => {
+    vi.spyOn(teamsApi, "getTeamAnalyticsSummary").mockRejectedValue(
+      new ApiError(500, "server_error"),
+    );
+
+    await act(async () => {
+      render(<TeamAnalyticsPanel teamId="team-abc" />);
+    });
+
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+
+  it("calls getTeamAnalyticsSummary again when retry button is clicked", async () => {
+    const spy = vi
+      .spyOn(teamsApi, "getTeamAnalyticsSummary")
+      .mockRejectedValue(new ApiError(500, "server_error"));
+
+    await act(async () => {
+      render(<TeamAnalyticsPanel teamId="team-abc" />);
+    });
+
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    const retryBtn = screen.getByRole("button", { name: "Try again" });
+    await act(async () => {
+      await userEvent.click(retryBtn);
+    });
+
+    expect(spy).toHaveBeenCalledTimes(2);
   });
 });

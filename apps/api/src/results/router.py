@@ -1,9 +1,12 @@
+import re
 import uuid
 from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, field_validator
+
+_CODE_HASH_HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
 from sqlalchemy.orm import Session
 
 from src.core.dependencies import get_current_user
@@ -56,6 +59,8 @@ class SaveResultRequest(BaseModel):
     def validate_hash(cls, v: str) -> str:
         if len(v) != 64:
             raise ValueError("code_hash must be a 64-character SHA-256 hex string")
+        if not _CODE_HASH_HEX_RE.match(v):
+            raise ValueError("code_hash must only contain hex characters (0-9, a-f, A-F)")
         return v
 
 

@@ -3,6 +3,36 @@
 
 ---
 
+## Current Status Snapshot (Updated: 2026-04-05)
+
+The sections below describe the original Phase 0 starting point. The project has since moved forward significantly.
+
+### What is done now (post-Phase 0)
+
+- Monorepo is active with working apps in `apps/api`, `apps/web`, and `apps/vscode-extension`.
+- CI is stabilized across API, web, extension, and shared types.
+- Team workflows in API are implemented: team create/list/member management and team-scoped result access.
+- Team analytics and insights are implemented end-to-end (API + web dashboard panels).
+- Team Analytics v3 is merged:
+  - optional query params on analytics endpoints (`days`, `top_n`) with validation
+  - composite indexes for analytics-heavy queries
+  - web selectors for range and top-N with automatic refetch
+
+### Roadmap status by stream
+
+- Stream A: Platform and CI hardening -> In progress (strong baseline established)
+- Stream B: Team analytics UX and performance -> MVP complete (v3 merged)
+- Stream C: Product polish and launch readiness -> Next
+
+### Next starting point for tomorrow
+
+1. Web polish pass for dashboard analytics cards and empty/error/loading states consistency.
+2. Hardening pass for permissions and edge-case validation around team-scoped analytics queries.
+3. Lightweight observability pass (key product events for range/top-N usage).
+4. Release prep for web MVP checkpoint (notes, smoke tests, rollback notes).
+
+---
+
 ## Audit: Current State
 
 ```

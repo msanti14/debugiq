@@ -6,11 +6,12 @@
  * GET /v0/teams/{teamId}/analytics/summary.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { ReactNode } from "react";
 import type { TeamAnalyticsSummary } from "@debugiq/shared-types";
 import { getTeamAnalyticsSummary } from "@/lib/api/teams";
 import { ApiError } from "@/lib/api/client";
+import { Button } from "@/components/ui/Button";
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
@@ -32,9 +33,9 @@ function SectionCard({
 }) {
   return (
     <div className="rounded-lg border border-white/5 bg-surface-1 px-5 py-4">
-      <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted">
+      <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-muted">
         {title}
-      </p>
+      </h3>
       {children}
     </div>
   );
@@ -60,6 +61,65 @@ function CountGrid({
   );
 }
 
+// ── Loading skeleton ────────────────────────────────────────────────────────────
+
+function AnalyticsSkeleton() {
+  return (
+    <div
+      data-testid="analytics-loading"
+      className="flex flex-col gap-4"
+      aria-busy="true"
+      aria-label="Loading analytics…"
+    >
+      {/* Headline stat card skeletons */}
+      <div className="grid grid-cols-3 gap-4">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="rounded-lg border border-white/5 bg-surface-1 px-5 py-4">
+            <div className="h-3 w-24 animate-pulse rounded bg-surface-2" />
+            <div className="mt-2 h-7 w-16 animate-pulse rounded bg-surface-2" />
+          </div>
+        ))}
+      </div>
+
+      {/* Severity section skeleton */}
+      <div className="rounded-lg border border-white/5 bg-surface-1 px-5 py-4">
+        <div className="mb-3 h-3 w-32 animate-pulse rounded bg-surface-2" />
+        <div className="grid grid-cols-5 gap-2">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div key={i} className="flex flex-col items-center gap-1">
+              <div className="h-3 w-10 animate-pulse rounded bg-surface-2" />
+              <div className="h-5 w-8 animate-pulse rounded bg-surface-2" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Mode + Language section skeleton */}
+      <div className="grid grid-cols-2 gap-4">
+        {[0, 1].map((i) => (
+          <div key={i} className="rounded-lg border border-white/5 bg-surface-1 px-5 py-4">
+            <div className="mb-3 h-3 w-16 animate-pulse rounded bg-surface-2" />
+            <div className="grid grid-cols-2 gap-2">
+              {[0, 1].map((j) => (
+                <div key={j} className="flex flex-col items-center gap-1">
+                  <div className="h-3 w-12 animate-pulse rounded bg-surface-2" />
+                  <div className="h-5 w-8 animate-pulse rounded bg-surface-2" />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Active members skeleton */}
+      <div className="rounded-lg border border-white/5 bg-surface-1 px-5 py-4">
+        <div className="h-3 w-40 animate-pulse rounded bg-surface-2" />
+        <div className="mt-2 h-7 w-8 animate-pulse rounded bg-surface-2" />
+      </div>
+    </div>
+  );
+}
+
 // ── Main panel ─────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -70,6 +130,9 @@ export function TeamAnalyticsPanel({ teamId }: Props) {
   const [data, setData] = useState<TeamAnalyticsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
+
+  const retry = useCallback(() => setRetryKey((k) => k + 1), []);
 
   useEffect(() => {
     setLoading(true);
@@ -83,20 +146,24 @@ export function TeamAnalyticsPanel({ teamId }: Props) {
         );
       })
       .finally(() => setLoading(false));
-  }, [teamId]);
+  }, [teamId, retryKey]);
 
   if (loading) {
-    return (
-      <div data-testid="analytics-loading" className="text-sm text-muted">
-        Loading analytics…
-      </div>
-    );
+    return <AnalyticsSkeleton />;
   }
 
   if (error) {
     return (
-      <div data-testid="analytics-error" className="text-sm text-red-400">
-        {error}
+      <div
+        data-testid="analytics-error"
+        role="alert"
+        className="rounded-lg border border-red-700/50 bg-red-900/20 p-6 text-center"
+      >
+        <p className="font-medium text-red-300">Failed to load team analytics</p>
+        <p className="mt-1 text-sm text-red-400/80">{error}</p>
+        <Button variant="secondary" size="sm" className="mt-4" onClick={retry}>
+          Try again
+        </Button>
       </div>
     );
   }

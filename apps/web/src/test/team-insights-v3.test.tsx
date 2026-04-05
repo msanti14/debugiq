@@ -8,6 +8,7 @@ import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 import * as teamsApi from "@/lib/api/teams";
+import * as analyticsApi from "@/lib/api/analytics";
 import { TeamInsightsPanel } from "@/components/teams/TeamInsightsPanel";
 import type { TeamInsights } from "@debugiq/shared-types";
 
@@ -178,5 +179,62 @@ describe("TeamInsightsPanel v3 — refetch on param change", () => {
     });
 
     expect(spy).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ── Analytics events ───────────────────────────────────────────────────────────
+
+describe("TeamInsightsPanel v3 — analytics events", () => {
+  it("does NOT call postAnalyticsEvent on initial mount", async () => {
+    vi.spyOn(teamsApi, "getTeamInsights").mockResolvedValue(makeInsights(30));
+    const analyticsSpy = vi.spyOn(analyticsApi, "postAnalyticsEvent");
+
+    await act(async () => {
+      render(<TeamInsightsPanel teamId="team-abc" />);
+    });
+
+    expect(analyticsSpy).not.toHaveBeenCalled();
+  });
+
+  it("calls postAnalyticsEvent with correct payload when days selector is clicked", async () => {
+    vi.spyOn(teamsApi, "getTeamInsights").mockResolvedValue(makeInsights(30));
+    const analyticsSpy = vi.spyOn(analyticsApi, "postAnalyticsEvent");
+
+    await act(async () => {
+      render(<TeamInsightsPanel teamId="team-abc" />);
+    });
+
+    const btn7d = screen.getByRole("button", { name: "7d" });
+
+    await act(async () => {
+      await userEvent.click(btn7d);
+    });
+
+    expect(analyticsSpy).toHaveBeenCalledOnce();
+    expect(analyticsSpy).toHaveBeenCalledWith(
+      "team_insights_selector_changed",
+      expect.objectContaining({ days: 7 }),
+    );
+  });
+
+  it("calls postAnalyticsEvent with correct payload when top_n selector is clicked", async () => {
+    vi.spyOn(teamsApi, "getTeamInsights").mockResolvedValue(makeInsights(30));
+    const analyticsSpy = vi.spyOn(analyticsApi, "postAnalyticsEvent");
+
+    await act(async () => {
+      render(<TeamInsightsPanel teamId="team-abc" />);
+    });
+
+    const btn50 = screen.getByRole("button", { name: "50" });
+
+    await act(async () => {
+      await userEvent.click(btn50);
+    });
+
+    expect(analyticsSpy).toHaveBeenCalledOnce();
+    expect(analyticsSpy).toHaveBeenCalledWith(
+      "team_insights_selector_changed",
+      expect.objectContaining({ top_n: 50 }),
+    );
   });
 });

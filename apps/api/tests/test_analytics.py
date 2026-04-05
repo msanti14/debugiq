@@ -269,3 +269,63 @@ def test_post_analytics_event_persisted(client, db_session):
     assert stored.event_type == "signature_generated"
     assert stored.properties["signature_hash"] == _HASH_A
     assert stored.user_id is not None
+
+
+# ── team_insights_selector_changed ────────────────────────────────────────────
+
+
+def test_post_analytics_event_team_insights_selector_changed_accepted(client):
+    """team_insights_selector_changed event type with days and top_n is accepted."""
+    token = _register_and_login(client, "analyticsH@example.com")
+    res = client.post(
+        "/v0/analytics/events",
+        json={
+            "event_type": "team_insights_selector_changed",
+            "properties": {"days": 30, "top_n": 10},
+        },
+        headers=_auth_headers(token),
+    )
+    assert res.status_code == 201
+    assert "event_id" in res.json()
+
+
+def test_post_analytics_event_days_property_accepted(client):
+    """days integer property is accepted on team_insights_selector_changed."""
+    token = _register_and_login(client, "analyticsI@example.com")
+    res = client.post(
+        "/v0/analytics/events",
+        json={
+            "event_type": "team_insights_selector_changed",
+            "properties": {"days": 7},
+        },
+        headers=_auth_headers(token),
+    )
+    assert res.status_code == 201
+
+
+def test_post_analytics_event_top_n_property_accepted(client):
+    """top_n integer property is accepted on team_insights_selector_changed."""
+    token = _register_and_login(client, "analyticsJ@example.com")
+    res = client.post(
+        "/v0/analytics/events",
+        json={
+            "event_type": "team_insights_selector_changed",
+            "properties": {"top_n": 50},
+        },
+        headers=_auth_headers(token),
+    )
+    assert res.status_code == 201
+
+
+def test_post_analytics_event_days_top_n_unknown_keys_still_rejected(client):
+    """Schema remains closed: arbitrary unknown keys alongside days/top_n are rejected."""
+    token = _register_and_login(client, "analyticsK@example.com")
+    res = client.post(
+        "/v0/analytics/events",
+        json={
+            "event_type": "team_insights_selector_changed",
+            "properties": {"days": 30, "top_n": 10, "unknown_field": "value"},
+        },
+        headers=_auth_headers(token),
+    )
+    assert res.status_code == 422

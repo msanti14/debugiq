@@ -5,6 +5,7 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, act } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import React from "react";
 import * as teamsApi from "@/lib/api/teams";
 import { TeamInsightsPanel } from "@/components/teams/TeamInsightsPanel";
@@ -149,5 +150,38 @@ describe("TeamInsightsPanel — error", () => {
 
     expect(screen.getByTestId("insights-error")).toBeTruthy();
     expect(screen.getByText("Failed to load team insights.")).toBeTruthy();
+  });
+});
+
+describe("TeamInsightsPanel — retry", () => {
+  it("renders a 'Try again' button in the error state", async () => {
+    vi.spyOn(teamsApi, "getTeamInsights").mockRejectedValue(
+      new ApiError(500, "server_error"),
+    );
+
+    await act(async () => {
+      render(<TeamInsightsPanel teamId="team-abc" />);
+    });
+
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+
+  it("calls getTeamInsights again when retry button is clicked", async () => {
+    const spy = vi
+      .spyOn(teamsApi, "getTeamInsights")
+      .mockRejectedValue(new ApiError(500, "server_error"));
+
+    await act(async () => {
+      render(<TeamInsightsPanel teamId="team-abc" />);
+    });
+
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    const retryBtn = screen.getByRole("button", { name: "Try again" });
+    await act(async () => {
+      await userEvent.click(retryBtn);
+    });
+
+    expect(spy).toHaveBeenCalledTimes(2);
   });
 });

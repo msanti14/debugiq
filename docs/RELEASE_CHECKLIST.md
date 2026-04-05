@@ -139,3 +139,66 @@ Latest release evidence:
 - Status: GO final
 - Hook fix commit: `63ecda9`
 - Hook smoke test: warnings printed, no `Bad substitution`, commit remains warn-only
+
+---
+
+## 13. Web App MVP Iteration Checklist (Updated: 2026-04-05)
+
+This section tracks current web app progress to allow pause/resume across days.
+
+### Completed (all passes green as of 2026-04-05)
+
+- [x] Teams scaffold and membership flows integrated in API/web contracts
+- [x] Team analytics summary endpoint integrated in dashboard
+- [x] Team insights endpoint integrated in dashboard insights panel
+- [x] Analytics query/perf hardening:
+  - [x] SQL aggregation paths improved (N+1 removed in member activity path)
+  - [x] Composite indexes on `analysis_results` for analytics-heavy queries
+  - [x] Responsive layout for insights cards (`grid-cols-1 md:grid-cols-2`)
+- [x] Team Analytics v3 controls merged:
+  - [x] `days` query parameter support (whitelist: 7, 14, 30, 90)
+  - [x] `top_n` query parameter support (range: 1–50)
+  - [x] Range/top-N selectors in web UI with automatic refetch
+- [x] Web polish pass:
+  - [x] Animated loading skeletons for both analytics panels
+  - [x] Error cards with `role="alert"`, retry button, and retry state
+  - [x] `<h3>` section headers (semantic correctness)
+  - [x] `PillSelector` gains `disabled` prop, `aria-pressed`, `focus-visible` ring
+  - [x] `EmptyNote` styled as italic muted text
+- [x] Permission/validation hardening:
+  - [x] Auth + membership checks run before query-param validation (non-members cannot probe via 422 vs 403)
+  - [x] `CreateTeamRequest.name` validation (strip, min 1, max 100)
+  - [x] `active_members_last_30d` always uses strict 30-day cutoff (not `days` param)
+  - [x] `code_hash` hex charset validation (rejects non-hex 64-char strings)
+  - [x] `top_n` manual bounds check (1–50) after auth
+- [x] Observability:
+  - [x] `team_insights_selector_changed` event type added to analytics endpoint
+  - [x] `days` + `top_n` properties added to `AnalyticsProperties` (schema remains closed)
+  - [x] `apps/web/src/lib/api/analytics.ts` — fire-and-forget event helper
+  - [x] `TeamInsightsPanel` fires event on selector change (not on mount)
+
+### Pending for next iteration
+
+- [ ] Real login/register UI (web app currently requires token injection for auth)
+- [ ] E2E browser tests (Playwright/Cypress) for full dashboard flow
+- [ ] Staging deployment and smoke test against Railway / Vercel
+- [ ] Tag and commit Pass 5 (polish/hardening/observability) changes
+- [ ] Consider `active_members_last_30d` rename/clarification in API response
+
+### Release checkpoint doc
+
+See [`docs/releases/web-mvp-checkpoint-2026-04-05.md`](releases/web-mvp-checkpoint-2026-04-05.md) for full release notes, smoke test checklist, and rollback plan.
+
+---
+
+## 14. Tomorrow Start Checklist (Fast Resume)
+
+- [ ] Sync local main: `git checkout main && git pull origin main`
+- [ ] Commit Pass 5 (polish/hardening/observability) if not yet done:
+  - `git add -A && git commit -m "feat(web): polish, permission hardening, and selector observability"`
+- [ ] Run baseline validation before edits:
+  - `pnpm --filter @debugiq/web typecheck`
+  - `pnpm --filter @debugiq/web test`
+  - `cd apps/api && . .venv/bin/activate && pytest -q`
+- [ ] Execute next slice and keep PR scoped to one objective
+- [ ] Open PR with explicit test evidence and rollback note
