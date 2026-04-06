@@ -5,10 +5,11 @@
  * Register page — display-name (optional), email, and password form.
  * Calls useAuth().register(), which auto-logs-in on success, then
  * navigates to /dashboard.
+ * Redirects already-authenticated users to /dashboard immediately.
  * Local `submitting` and `error` state mirror the pattern in login/page.tsx.
  */
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth/context";
@@ -17,7 +18,18 @@ import { Button } from "@/components/ui/Button";
 
 export default function RegisterPage() {
   const router = useRouter();
-  const { register } = useAuth();
+  const { register, user, loading } = useAuth();
+
+  // Redirect already-authenticated users away from the register page.
+  useEffect(() => {
+    if (!loading && user) {
+      router.replace("/dashboard");
+    }
+  }, [user, loading, router]);
+
+  // Prevent flash: render nothing while auth state is loading or a redirect
+  // is in progress.
+  if (loading || user) return null;
 
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");

@@ -6,6 +6,8 @@
  *   - successful submit → router.replace('/dashboard') called
  *   - loading/disabled state while the async call is in-flight
  *   - error banner rendered when the call rejects
+ *   - already-authenticated user is redirected to /dashboard
+ *   - renders null (no flash) during initial auth loading
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -18,17 +20,13 @@ const mockLogin = vi.fn();
 const mockRegister = vi.fn();
 const mockReplace = vi.fn();
 
+// `mockUseAuth` is a vi.fn() so individual tests can call
+// mockUseAuth.mockReturnValue({...}) to override auth state while the existing
+// 6 tests continue to rely on the safe default set in beforeEach.
+const mockUseAuth = vi.fn();
+
 vi.mock("@/lib/auth/context", () => ({
-  useAuth: () => ({
-    login: mockLogin,
-    register: mockRegister,
-    user: null,
-    loading: false,
-    error: null,
-    logout: vi.fn(),
-    clearError: vi.fn(),
-    refreshUser: vi.fn(),
-  }),
+  useAuth: () => mockUseAuth(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -51,6 +49,29 @@ vi.mock("next/link", () => ({
 
 import LoginPage from "@/app/login/page";
 import RegisterPage from "@/app/register/page";
+
+// ── Shared fixtures ────────────────────────────────────────────────────────────
+
+/** The default auth state: unauthenticated, fully hydrated. */
+const defaultAuth = () => ({
+  login: mockLogin,
+  register: mockRegister,
+  user: null,
+  loading: false,
+  error: null,
+  logout: vi.fn(),
+  clearError: vi.fn(),
+  refreshUser: vi.fn(),
+});
+
+/** A populated user object matching the UserResponse shape. */
+const authedUser = {
+  user_id: "user-1",
+  email: "a@b.com",
+  display_name: null,
+  tier: "free" as const,
+  created_at: "2025-01-01T00:00:00Z",
+};
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -83,6 +104,9 @@ function fillRegisterForm(
 // ── Setup ─────────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
+  // Restore default auth state for every test so the existing 6 tests are
+  // unaffected by any per-test override set in the new tests.
+  mockUseAuth.mockReturnValue(defaultAuth());
   mockLogin.mockReset();
   mockRegister.mockReset();
   mockReplace.mockReset();
@@ -205,5 +229,65 @@ describe("RegisterPage — error rendering", () => {
       expect(screen.getByRole("alert")).toBeTruthy(),
     );
     expect(screen.getByText("email_already_exists")).toBeTruthy();
+  });
+});
+
+// ── Already-authenticated redirect ────────────────────────────────────────────
+
+describe("LoginPage — already-authenticated redirect", () => {
+  it("redirects to /dashboard when user is already authenticated", async () => {
+    mockUseAuth.mockReturnValue({
+      ...defaultAuth(),
+      user: authedUser,
+      loading: false,
+    });
+
+    render(<LoginPage />);
+
+    await waitFor(() =>
+      expect(mockReplace).toHaveBeenCalledWith("/dashboard"),
+    );
+  });
+
+  it("renders null (no flash) during initial auth loading", () => {
+    mockUseAuth.mockReturnValue({
+      ...defaultAuth(),
+      user: null,
+      loading: true,
+    });
+
+    render(<LoginPage />);
+
+    expect(screen.queryByRole("button", { name: /sign in/i })).toBeNull();
+  });
+});
+
+describe("RegisterPage — already-authenticated redirect", () => {
+  it("redirects to /dashboard when user is already authenticated", async () => {
+    mockUseAuth.mockReturnValue({
+      ...defaultAuth(),
+      user: authedUser,
+      loading: false,
+    });
+
+    render(<RegisterPage />);
+
+    await waitFor(() =>
+      expect(mockReplace).toHaveBeenCalledWith("/dashboard"),
+    );
+  });
+
+  it("renders null (no flash) during initial auth loading", () => {
+    mockUseAuth.mockReturnValue({
+      ...defaultAuth(),
+      user: null,
+      loading: true,
+    });
+
+    render(<RegisterPage />);
+
+    expect(
+      screen.queryByRole("button", { name: /create account/i }),
+    ).toBeNull();
   });
 });

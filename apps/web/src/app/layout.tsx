@@ -10,6 +10,7 @@
  * lives at AuthProvider, not here.
  */
 
+import "./globals.css";
 import React from "react";
 import type { Metadata } from "next";
 import { AuthProvider } from "@/lib/auth/context";

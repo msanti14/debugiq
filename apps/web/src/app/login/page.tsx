@@ -4,11 +4,12 @@
  *
  * Login page — email/password form.
  * Calls useAuth().login(), then navigates to /dashboard on success.
+ * Redirects already-authenticated users to /dashboard immediately.
  * Local `submitting` and `error` state are used for form UX so the
  * page is independently testable without relying on AuthContext internal state.
  */
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth/context";
@@ -17,7 +18,18 @@ import { Button } from "@/components/ui/Button";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login } = useAuth();
+  const { login, user, loading } = useAuth();
+
+  // Redirect already-authenticated users away from the login page.
+  useEffect(() => {
+    if (!loading && user) {
+      router.replace("/dashboard");
+    }
+  }, [user, loading, router]);
+
+  // Prevent flash: render nothing while auth state is loading or a redirect
+  // is in progress.
+  if (loading || user) return null;
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

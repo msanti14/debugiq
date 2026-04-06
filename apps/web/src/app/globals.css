@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: #0d0d0f;
+  color: #ffffff;
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
