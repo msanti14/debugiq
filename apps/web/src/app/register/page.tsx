@@ -20,6 +20,14 @@ export default function RegisterPage() {
   const router = useRouter();
   const { register, user, loading } = useAuth();
 
+  // Local form state — declared before any conditional return to satisfy
+  // React's Rules of Hooks (hooks must be called in the same order on every render).
+  const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   // Redirect already-authenticated users away from the register page.
   useEffect(() => {
     if (!loading && user) {
@@ -30,12 +38,6 @@ export default function RegisterPage() {
   // Prevent flash: render nothing while auth state is loading or a redirect
   // is in progress.
   if (loading || user) return null;
-
-  const [displayName, setDisplayName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

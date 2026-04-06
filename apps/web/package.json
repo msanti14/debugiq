@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "next": "14.2.29",
@@ -17,11 +18,12 @@
   },
   "devDependencies": {
     "@debugiq/shared-types": "workspace:*",
-    "@types/react": "^18",
-    "@types/react-dom": "^18",
+    "@playwright/test": "^1.59.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.27",
     "eslint": "^8.57.1",
