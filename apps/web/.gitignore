@@ -2,3 +2,6 @@
 /playwright-report/
 /test-results/
 /e2e/screenshots/
+.vercel/*
+!.vercel/project.json
+.env*.local
