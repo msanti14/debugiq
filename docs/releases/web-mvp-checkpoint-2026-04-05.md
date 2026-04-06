@@ -334,7 +334,7 @@ git checkout -- apps/web/src/test/team-analytics.test.tsx
 git checkout -- apps/web/src/test/team-insights-v3.test.tsx
 git checkout -- apps/web/src/test/team-insights.test.tsx
 git checkout -- docs/RELEASE_CHECKLIST.md
-git checkout -- PHASE_0_PLAN.md
+git checkout -- PROJECT_STATUS_AND_ROADMAP.md
 git rm --cached apps/web/src/lib/api/analytics.ts
 rm apps/web/src/lib/api/analytics.ts
 
