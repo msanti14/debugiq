@@ -5,13 +5,13 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, field_validator
-
-_CODE_HASH_HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
 from sqlalchemy.orm import Session
 
 from src.core.dependencies import get_current_user
 from src.db.models import AnalysisResult, TeamMember, User
 from src.db.session import get_db
+
+_CODE_HASH_HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
 
 router = APIRouter(prefix="/results", tags=["results"])
 
