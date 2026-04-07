@@ -245,3 +245,4 @@ cd apps/api && . .venv/bin/activate && pytest -q && cd ../..
 - **Tests:** nunca bajar la cuenta de tests. Cada sprint debe mantener o aumentar.
 - **Agentes:** este doc sirve de contexto tanto para el usuario, como para Copilot (este chat), como para OpenCode.
 - **Deploy:** siempre a través del pipeline CI → deploy. Nunca deploy manual directo.
+  
